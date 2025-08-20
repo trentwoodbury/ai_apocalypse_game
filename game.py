@@ -12,19 +12,18 @@ class Game:
         self.canvas = tk.Canvas(root, width=w, height=h, bg="#f7f7fb")
         self.canvas.pack()
 
-        # ---- init state FIRST if later UI reads it ----
+        # --- state first (UI reads it) ---
         self.occupied = {}          # (row, col) -> cube_idx
         self.active_cube = None
         self.deck = list(range(1, 51))
         random.shuffle(self.deck)
         self.last_card = None
 
-        # ---- then build UI ----
+        # --- UI ---
         self.draw_grid()
         self.draw_start_area()
-        self.draw_card_area()       # safe now: deck exists
+        self.draw_card_area()
 
-        # cubes
         self.cubes = []
         colors = ["#ff7f50", "#87cefa", "#98fb98", "#dda0dd"]
         for i in range(4):
@@ -45,34 +44,6 @@ class Game:
         self.canvas.bind("<Button-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_move)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
-
-    def draw_card_area(self):
-        self.canvas.create_text(
-            S.GRID_ORIGIN_X + 100, S.CARD_AREA_Y - 8,
-            text="Drawn Card (drops in Column 2):",
-            anchor="w",
-            font=("Helvetica", 12, "bold")
-        )
-        self.canvas.create_rectangle(
-            S.CARD_AREA_X, S.CARD_AREA_Y,
-            S.CARD_AREA_X + S.CARD_AREA_W, S.CARD_AREA_Y + S.CARD_AREA_H,
-            outline="#bbbbc6"
-        )
-        self.card_slot = self.canvas.create_rectangle(
-            S.CARD_AREA_X + 10, S.CARD_AREA_Y + 10, S.CARD_AREA_X + 110, S.CARD_AREA_Y + 90,
-            fill="#fffdf5", outline="#999"
-        )
-        self.card_text = self.canvas.create_text(
-            S.CARD_AREA_X + 60, S.CARD_AREA_Y + 50,
-            text="—", font=("Helvetica", 20, "bold")
-        )
-        # Show current deck size (deck exists now)
-        self.deck_text = self.canvas.create_text(
-            S.CARD_AREA_X + 140, S.CARD_AREA_Y + 50,
-            text=f"Deck: {len(self.deck)}",
-            anchor="w",
-            font=("Helvetica", 12)
-        )
 
     # ---- UI drawing ----
     def draw_grid(self):
@@ -107,6 +78,33 @@ class Game:
             outline="#bbbbc6", dash=(4, 2)
         )
 
+    def draw_card_area(self):
+        self.canvas.create_text(
+            S.GRID_ORIGIN_X + 100, S.CARD_AREA_Y - 8,
+            text="Drawn Card (drops in Column 2):",
+            anchor="w",
+            font=("Helvetica", 12, "bold")
+        )
+        self.canvas.create_rectangle(
+            S.CARD_AREA_X, S.CARD_AREA_Y,
+            S.CARD_AREA_X + S.CARD_AREA_W, S.CARD_AREA_Y + S.CARD_AREA_H,
+            outline="#bbbbc6"
+        )
+        self.card_slot = self.canvas.create_rectangle(
+            S.CARD_AREA_X + 10, S.CARD_AREA_Y + 10, S.CARD_AREA_X + 110, S.CARD_AREA_Y + 90,
+            fill="#fffdf5", outline="#999"
+        )
+        self.card_text = self.canvas.create_text(
+            S.CARD_AREA_X + 60, S.CARD_AREA_Y + 50,
+            text="—", font=("Helvetica", 20, "bold")
+        )
+        self.deck_text = self.canvas.create_text(
+            S.CARD_AREA_X + 140, S.CARD_AREA_Y + 50,
+            text=f"Deck: {len(self.deck)}",
+            anchor="w",
+            font=("Helvetica", 12)
+        )
+
     # ---- Mouse handling ----
     def on_mouse_down(self, event):
         for cube in reversed(self.cubes):  # last created is topmost
@@ -131,15 +129,26 @@ class Game:
         cell = self.pixel_to_cell(event.x, event.y)
         if cell and self.can_place(cell):
             row, col = cell
-            cube.center_on_cell(row, col)
-            self.occupied[(row, col)] = cube.idx
-            if col == 1:  # second column (0-based)
-                self.draw_card()
+            self.place_cube_and_handle_events(cube, row, col)
         else:
             cube.return_to_start()
 
         self.update_reset_visibility()
         self.active_cube = None
+
+    # ---- Placement & game logic ----
+    def place_cube_and_handle_events(self, cube, row, col):
+        """Snap cube to (row,col), mark occupied, and trigger placement events."""
+        cube.center_on_cell(row, col)
+        self.occupied[(row, col)] = cube.idx
+        self.on_cube_placed(cube)
+
+    def on_cube_placed(self, cube):
+        """Called whenever a cube finishes placement on a cell."""
+        row, col = cube.current_cell
+        # Draw a card if placed in second column (0-based index 1)
+        if col == 1:
+            self.draw_card()
 
     # ---- Helpers ----
     def pixel_to_cell(self, x, y):
