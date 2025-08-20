@@ -107,24 +107,28 @@ class TestGame(unittest.TestCase):
         self.assertEqual(self.game.compute_idx, 1)
 
     def test_take_actions_bumps_model_on_0_1_with_cap(self):
-        # Place model bump while compute at 0 — should not exceed compute after bumps
-        c = self.game.cubes[0]
-        self.game.place_cube_and_handle_events(c, 0, 1)
-        self.game.take_actions()
-        self.assertEqual(self.game.model_idx, 0)  # capped by compute
+        g = self.game
+        c = g.cubes[0]
 
-        # Now raise compute to 2
-        c = self.game.cubes[0]
+        # Ensure funds aren't the limiting factor for this logic test
+        g.funds.add(1000)
+
+        # Try to bump model while compute=0 -> should stay 0 due to cap
+        g.place_cube_and_handle_events(c, 0, 1)
+        g.take_actions()
+        self.assertEqual(g.model_idx, 0)
+
+        # Raise compute to 2
         for _ in range(2):
-            self.game.place_cube_and_handle_events(c, 0, 0)
-            self.game.take_actions()
-        self.assertEqual(self.game.compute_idx, 2)
+            g.place_cube_and_handle_events(c, 0, 0)
+            g.take_actions()
+        self.assertEqual(g.compute_idx, 2)
 
-        # Try to bump model 3 times, but it should cap at compute (2)
+        # Attempt to bump model 3 times, but cap at compute (2)
         for _ in range(3):
-            self.game.place_cube_and_handle_events(c, 0, 1)
-            self.game.take_actions()
-        self.assertEqual(self.game.model_idx, 2)
+            g.place_cube_and_handle_events(c, 0, 1)
+            g.take_actions()
+        self.assertEqual(g.model_idx, 2)
 
     def test_take_actions_bumps_chaos_on_2_1_and_2_2(self):
         c = self.game.cubes[0]
@@ -153,6 +157,50 @@ class TestGame(unittest.TestCase):
 
         g.take_actions()  # total expected deduction = 0 + 2 + 4 + 1 = 7
         self.assertEqual(g.funds.value, max(0, start - 7))
+
+    def test_take_actions_button_disables_when_insufficient_funds(self):
+        g = self.game
+        # Make user broke
+        g.funds.value = 1
+        g.funds._update_label()
+
+        # Place all 4 tokens so the button should appear
+        final_col = S.GRID_COLS - 1
+        g.place_cube_and_handle_events(g.cubes[0], 0, 2)  # lobby (cost at least 4)
+        g.place_cube_and_handle_events(g.cubes[1], 1, 0)  # filler
+        g.place_cube_and_handle_events(g.cubes[2], 2, 0)  # filler
+        g.place_cube_and_handle_events(g.cubes[3], 1, 2)  # filler
+
+        g.update_reset_visibility()
+
+        # Window visible
+        self.assertEqual(g.canvas.itemcget(g.take_action_button_window, "state"), "normal")
+        # Button disabled
+        self.assertEqual(g.take_action_button.cget("state"), "disabled")
+
+    def test_take_actions_with_insufficient_funds_shows_toast_and_noop(self):
+        g = self.game
+        g.funds.value = 1
+        g.funds._update_label()
+
+        # Place one expensive action and three fillers
+        g.place_cube_and_handle_events(g.cubes[0], 0, 2)  # lobby first = 4
+        g.place_cube_and_handle_events(g.cubes[1], 0, 0)  # compute_or_model might be 0 but fine
+        g.place_cube_and_handle_events(g.cubes[2], 1, 0)
+        g.place_cube_and_handle_events(g.cubes[3], 2, 0)
+
+        g.update_reset_visibility()
+        # Force-click handler regardless of disabled state (call method)
+        pre_funds = g.funds.value
+        pre_positions = [c.current_cell for c in g.cubes]
+
+        g.take_actions()
+
+        # Funds unchanged, cubes not reset (since we no-op'ed)
+        self.assertEqual(g.funds.value, pre_funds)
+        self.assertEqual([c.current_cell for c in g.cubes], pre_positions)
+        # Toast exists
+        self.assertTrue(getattr(g, "toast_id", None))
 
 
 if __name__ == "__main__":

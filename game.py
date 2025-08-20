@@ -381,12 +381,26 @@ class Game:
 
     def update_reset_visibility(self):
         placed = sum(1 for c in self.cubes if c.current_cell is not None)
-        self.canvas.itemconfigure(
-            self.take_action_button_window,
-            state=("normal" if placed == 4 else "hidden")
-        )
+        if placed == 4:
+            # Show the button window
+            self.canvas.itemconfigure(self.take_action_button_window, state="normal")
+            # Enable/disable based on funds sufficiency
+            pending = self._pending_total_cost()
+            if pending > self.funds.value:
+                self.take_action_button.config(state="disabled")
+            else:
+                self.take_action_button.config(state="normal")
+        else:
+            self.canvas.itemconfigure(self.take_action_button_window, state="hidden")
+            self.take_action_button.config(state="normal")  # reset for next time
 
     def take_actions(self):
+        # Funds gate
+        pending = self._pending_total_cost()
+        if pending > self.funds.value:
+            self._toast("Insufficient Funds")
+            return
+
         # 1) Card draws for cubes in final column (rows 0–2)
         for _ in self.cubes_on_final_column():
             self.draw_card()
@@ -528,3 +542,41 @@ class Game:
     def inc_chaos(self, n=1):
         self.chaos_idx = min(self.chaos_idx + n, len(S.CHAOS_STEPS) - 1)
         self._render_tracker_markers()
+
+    def _charges_for_current_turn(self):
+        """Count how many times each cost key would be charged for current placements."""
+        charges = {"lobby": 0, "scale_presence": 0, "compute_or_model": 0}
+        for cube in self.cubes:
+            if not cube.current_cell:
+                continue
+            r, c = cube.current_cell
+            if (r, c) == (0, 0) or (r, c) == (0, 1):
+                charges["compute_or_model"] += 1
+            if (r, c) == (0, 2):
+                charges["lobby"] += 1
+            if (r, c) == (1, 1):
+                charges["scale_presence"] += 1
+        return charges
+
+    def _pending_total_cost(self):
+        """Sum of all costs for current placements if Take Actions were pressed now."""
+        charges = self._charges_for_current_turn()
+        return (
+                self.funds.peek_cost("compute_or_model", charges["compute_or_model"])
+                + self.funds.peek_cost("lobby", charges["lobby"])
+                + self.funds.peek_cost("scale_presence", charges["scale_presence"])
+        )
+
+    def _toast(self, msg: str, millis: int = 1500):
+        """Transient popup-like notice above the hand area."""
+        # Kill old toast if present
+        if hasattr(self, "toast_id") and self.toast_id:
+            self.canvas.delete(self.toast_id)
+            self.toast_id = None
+        x = S.CARD_AREA_X + S.CARD_AREA_W / 2
+        y = S.CARD_AREA_Y - 8
+        self.toast_id = self.canvas.create_text(
+            x, y, text=msg, fill="#b00020", font=("Helvetica", 12, "bold"), anchor="s"
+        )
+        self.canvas.after(millis, lambda: (self.canvas.delete(self.toast_id), setattr(self, "toast_id", None)))
+

@@ -53,3 +53,15 @@ class Funds:
         if amount:
             self.value = max(0, self.value + int(amount))
             self._update_label()
+
+    def peek_cost(self, key: str, times: int = 1) -> int:
+        """Return the total cost for 'times' future uses of 'key' without mutating state."""
+        if times <= 0 or key not in self.series_map:
+            return 0
+        seq = self.series_map[key]
+        idx = self.counters[key]
+        total = 0
+        for _ in range(times):
+            total += seq[min(idx, len(seq) - 1)]
+            idx += 1
+        return total
