@@ -3,6 +3,12 @@ import random
 import settings as S
 from cube import Cube
 
+import tkinter.font as tkfont
+import textwrap
+
+
+BOARD_LABELS = S.BOARD_LABELS
+
 class Game:
     def __init__(self, root):
         self.root = root
@@ -22,6 +28,7 @@ class Game:
         self.hand = []              # list[int], drawn cards
 
         # --- UI ---
+        self.cell_text_ids = {}  # (row,col) -> canvas text id (for tests)
         self.draw_grid()
         self.draw_start_area()
         self.draw_card_area()
@@ -56,7 +63,7 @@ class Game:
         self.canvas.create_text(
             S.GRID_ORIGIN_X + S.GRID_COLS * S.CELL_SIZE / 2,
             20,
-            text="Drop cubes on the 4×4 grid",
+            text="Quarterly Strategy",
             font=("Helvetica", 16, "bold")
         )
         for r in range(S.GRID_ROWS):
@@ -65,8 +72,12 @@ class Game:
                 y0 = S.GRID_ORIGIN_Y + r * S.CELL_SIZE
                 x1 = x0 + S.CELL_SIZE
                 y1 = y0 + S.CELL_SIZE
-                fill = "#ffffff" if c % 2 == r % 2 else "#f0f0f5"
+                fill = "#ffffff" if c % 2 == r % 2 else "#f5f6fa"
                 self.canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#ccccd6")
+                idx = r * S.GRID_COLS + c
+                if idx < len(BOARD_LABELS):
+                    self.draw_cell_label(r, c, BOARD_LABELS[idx])
+
         for c in range(S.GRID_COLS):
             cx = S.GRID_ORIGIN_X + c * S.CELL_SIZE + S.CELL_SIZE / 2
             self.canvas.create_text(cx, S.GRID_ORIGIN_Y - 12, text=f"Col {c+1}", font=("Helvetica", 10))
@@ -174,8 +185,8 @@ class Game:
 
     def on_cube_placed(self, cube):
         row, col = cube.current_cell
-        # Draw only if column 0 AND row in {0,1,2}
-        if col == 0 and row in (0, 1, 2):
+        # Draw only if placed in the **fourth column** (0-indexed col == 3)
+        if col == 3:
             self.draw_card()
 
     # ---- Helpers ----
@@ -194,6 +205,54 @@ class Game:
 
     def can_place(self, cell):
         return cell not in self.occupied
+
+    def draw_cell_label(self, row, col, text):
+        CELL_TEXT_PAD = 10  # inner padding in each cell
+        # compute center of the cell
+        x0 = S.GRID_ORIGIN_X + col * S.CELL_SIZE
+        y0 = S.GRID_ORIGIN_Y + row * S.CELL_SIZE
+        x1 = x0 + S.CELL_SIZE
+        y1 = y0 + S.CELL_SIZE
+
+        max_w = S.CELL_SIZE - 2 * CELL_TEXT_PAD
+        max_h = S.CELL_SIZE - 2 * CELL_TEXT_PAD
+
+        # try decreasing font sizes until it fits
+        size = 18
+        wrapped = text
+        font = None
+        for fs in range(18, 9, -1):  # 18 down to 10
+            font = tkfont.Font(family="Helvetica", size=fs, weight="bold")
+            # wrap per line width in pixels -> approximate via measuring characters
+            # choose wrap width by binary search-ish: start with chars/line guess
+            # convert pixels->chars guess using average char width
+            avg_char_px = max(font.measure("M"), 1)
+            chars_per_line = max(int(max_w / (avg_char_px * 0.7)), 8)
+
+            lines = []
+            for paragraph in text.split("\n"):
+                lines.extend(textwrap.wrap(paragraph, width=chars_per_line) or [""])
+
+            # measure total height
+            line_h = font.metrics("linespace")
+            total_h = line_h * len(lines)
+            # check max line width
+            widest = max((font.measure(line) for line in lines), default=0)
+
+            if widest <= max_w and total_h <= max_h:
+                wrapped = "\n".join(lines)
+                size = fs
+                break
+
+        # create the text item centered in the cell
+        cx = (x0 + x1) / 2
+        cy = (y0 + y1) / 2
+        t_id = self.canvas.create_text(
+            cx, cy, text=wrapped, font=("Helvetica", size, "bold"),
+            fill="#111", justify="center"
+        )
+        # stash for testing
+        self.cell_text_ids[(row, col)] = t_id
 
     # ---- Cards / Hand ----
     def draw_card(self):

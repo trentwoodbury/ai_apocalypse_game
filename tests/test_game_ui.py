@@ -26,11 +26,39 @@ class TestGameUI(unittest.TestCase):
             self.assertLessEqual(y1, max_y + 0.1)
 
     def test_actions_button_label_and_position(self):
-        # correct label
         self.assertEqual(self.game.reset_button.cget("text"), "Take Actions")
-        # button should be above the hand area (y < CARD_AREA_Y)
         bx, by = self.game.canvas.coords(self.game.reset_button_window)
-        self.assertLess(by, S.CARD_AREA_Y)
+
+        # Button should be strictly to the LEFT of the hand area
+        self.assertLess(bx, S.CARD_AREA_X)
+
+        # And vertically within the hand area's vertical span
+        self.assertGreaterEqual(by, S.CARD_AREA_Y)
+        self.assertLessEqual(by, S.CARD_AREA_Y + S.CARD_AREA_H)
+
+    def test_all_cell_labels_fit_inside_cells(self):
+        # Each drawn label's bbox must be within its cell bbox (with small tolerance)
+        tol = 1.1
+        for r in range(S.GRID_ROWS):
+            for c in range(S.GRID_COLS):
+                idx = r * S.GRID_COLS + c
+                if idx >= len(self.game.cell_text_ids):
+                    continue
+                text_id = self.game.cell_text_ids.get((r, c))
+                if not text_id:
+                    continue
+                tx0, ty0, tx1, ty1 = self.game.canvas.bbox(text_id)
+
+                cx0 = S.GRID_ORIGIN_X + c * S.CELL_SIZE + 2
+                cy0 = S.GRID_ORIGIN_Y + r * S.CELL_SIZE + 2
+                cx1 = cx0 + S.CELL_SIZE - 4
+                cy1 = cy0 + S.CELL_SIZE - 4
+
+                self.assertGreaterEqual(tx0 + tol, cx0)
+                self.assertGreaterEqual(ty0 + tol, cy0)
+                self.assertLessEqual(tx1 - tol, cx1)
+                self.assertLessEqual(ty1 - tol, cy1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,21 +20,20 @@ class TestGame(unittest.TestCase):
         self.game.occupied.pop((row, col), None)
         cube.return_to_start()
 
-    def test_draw_only_on_col0_rows012(self):
+    def test_place_in_fourth_column_draws_card(self):
         cube = self.game.cubes[0]
-        start_hand = len(self.game.hand)
+        initial_deck = len(self.game.deck)
+        # place at row 0, col 3
+        self.game.place_cube_and_handle_events(cube, 0, 3)
+        self.assertEqual(len(self.game.deck), initial_deck - 1)
+        self.assertEqual(len(self.game.hand), 1)
 
-        # Valid draw cells
-        for r in (0, 1, 2):
-            self._place_and_free(cube, r, 0)
-        self.assertEqual(len(self.game.hand), start_hand + 3)
-
-        # Invalid cells: column 1..3, or row 3 on column 0
-        invalid_targets = [(0,1), (1,2), (2,3), (3,0), (3,1), (0,3)]
-        for r, c in invalid_targets:
-            self._place_and_free(cube, r, c)
-        # Hand should not increase from invalid placements
-        self.assertEqual(len(self.game.hand), start_hand + 3)
+    def test_place_in_other_columns_does_not_draw(self):
+        cube = self.game.cubes[1]
+        initial_deck = len(self.game.deck)
+        self.game.place_cube_and_handle_events(cube, 1, 2)  # column 2
+        self.assertEqual(len(self.game.deck), initial_deck)
+        self.assertEqual(len(self.game.hand), 0)
 
     def test_hand_persists_through_reset(self):
         cube = self.game.cubes[1]
@@ -55,37 +54,35 @@ class TestGame(unittest.TestCase):
 
     def test_hand_limit_enforced(self):
         cube = self.game.cubes[2]
-        # Force draws until hitting limit
-        target_draws = S.HAND_LIMIT + 2  # try to exceed
-        for _ in range(target_draws):
-            self._place_and_free(cube, 0, 0)
+        for _ in range(S.HAND_LIMIT + 2):  # try to exceed
+            self.game.place_cube_and_handle_events(cube, 0, 3)  # col 3 draws
+            self.game.occupied.pop((0, 3), None)
+            cube.return_to_start()
 
         self.assertEqual(len(self.game.hand), S.HAND_LIMIT)
-        # UI should show "Hand is full" message after exceeding
         msg = self.game.canvas.itemcget(self.game.hand_full_text, "text")
         self.assertIn("Hand is full", msg)
 
     def test_deck_text_updates(self):
         before = self.game.canvas.itemcget(self.game.deck_text, "text")
         cube = self.game.cubes[0]
-        self._place_and_free(cube, 0, 0)  # draw once
+        # draw by placing in fourth column (col = 3)
+        self.game.place_cube_and_handle_events(cube, 0, 3)
         after = self.game.canvas.itemcget(self.game.deck_text, "text")
         self.assertNotEqual(before, after)
 
     def test_draw_writes_immediately_to_next_slot(self):
         cube = self.game.cubes[0]
-
-        # Force one valid draw
-        self.game.place_cube_and_handle_events(cube, 0, 0)
-        self.game.occupied.pop((0, 0), None)
+        self.game.place_cube_and_handle_events(cube, 0, 3)  # col 3
+        self.game.occupied.pop((0, 3), None)
         cube.return_to_start()
 
         self.assertEqual(len(self.game.hand), 1)
-        # UI slot 0 should show the exact card value
         card0 = self.game.hand[0]
         _, text_id = self.game.hand_slot_ids[0]
         ui_text = self.game.canvas.itemcget(text_id, "text")
         self.assertEqual(ui_text, str(card0))
+
 
 if __name__ == "__main__":
     unittest.main()
