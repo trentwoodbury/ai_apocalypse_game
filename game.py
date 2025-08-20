@@ -418,6 +418,7 @@ class Game:
         top_y = S.GRID_ORIGIN_Y + grid_h + 10  # just below the globe
         row_h = 36
         pad_x = 10
+        self.trackers_rightmost_x = S.GRID_ORIGIN_X  # init; we'll update
 
         # One row drawer
         def draw_row(y, title, steps, marker_list_key):
@@ -437,6 +438,7 @@ class Game:
                 cy = y
                 circle = self.canvas.create_oval(cx - 10, cy - 10, cx + 10, cy + 10, outline="", width=3)
                 self.tracker_items[marker_list_key].append((rect, txt, circle, (x, y, w)))
+                self.trackers_rightmost_x = max(self.trackers_rightmost_x, x + w)
                 x += w + 8
 
         draw_row(top_y + 0 * row_h, "Compute", S.COMPUTE_STEPS, "compute")
@@ -445,6 +447,11 @@ class Game:
 
         # paint initial markers
         self._render_tracker_markers()
+        # Scale screen to include full trackers
+        needed_w = int(self.trackers_rightmost_x + S.GRID_PADDING)
+        current_w = int(float(self.canvas.cget("width")))
+        if needed_w > current_w:
+            self.canvas.config(width=needed_w)
 
     def _render_tracker_markers(self):
         """Position/visibility of the index markers (black circles)."""
