@@ -27,8 +27,8 @@ class TestGameUI(unittest.TestCase):
             self.assertLessEqual(y1, max_y + 0.1)
 
     def test_actions_button_label_and_position(self):
-        self.assertEqual(self.game.reset_button.cget("text"), "Take Actions")
-        bx, by = self.game.canvas.coords(self.game.reset_button_window)
+        self.assertEqual(self.game.take_action_button.cget("text"), "Take Actions")
+        bx, by = self.game.canvas.coords(self.game.take_action_button_window)
 
         # Button should be strictly to the LEFT of the hand area
         self.assertLess(bx, S.CARD_AREA_X)
@@ -84,6 +84,31 @@ class TestGameUI(unittest.TestCase):
         canvas_w = int(self.game.canvas.cget("width"))
         expected_min_w = x + img_w + S.GRID_PADDING
         self.assertGreaterEqual(canvas_w, expected_min_w - 1)
+
+    def test_start_area_position_and_label(self):
+        # Start area rectangle exists
+        rect_id = getattr(self.game, "start_area_rect_id", None)
+        self.assertIsNotNone(rect_id)
+
+        x0, y0, x1, y1 = self.game.canvas.coords(rect_id)
+
+        # Top flush with grid top
+        self.assertAlmostEqual(y0, S.GRID_ORIGIN_Y, delta=1)
+
+        # Right edge should sit exactly one GRID_PADDING to the left of grid
+        expected_right = S.GRID_ORIGIN_X - S.GRID_PADDING
+        self.assertAlmostEqual(x1, expected_right, delta=1)
+
+        # Left of grid (sanity)
+        self.assertLess(x1, S.GRID_ORIGIN_X)
+
+        # Label exists, is black, centered above the box
+        label_id = getattr(self.game, "start_area_label_id", None)
+        self.assertIsNotNone(label_id)
+        lx, ly = self.game.canvas.coords(label_id)
+        self.assertAlmostEqual(lx, (x0 + x1) / 2, delta=2)
+        self.assertLess(ly, y0)  # above the box
+        self.assertEqual(self.game.canvas.itemcget(label_id, "fill"), "black")
 
 
 if __name__ == "__main__":

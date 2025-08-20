@@ -30,59 +30,67 @@ class Game:
         self.canvas = tk.Canvas(root, width=w, height=h, bg="#f7f7fb")
         self.canvas.pack()
 
-        # --- state first ---
-        self.occupied = {}          # (row, col) -> cube_idx
+        # --- state (UI reads this) ---
+        self.occupied = {}
         self.active_cube = None
-        self.deck = list(range(1, 51))
+        self.deck = list(range(1, 51));
         random.shuffle(self.deck)
+        self.hand = []
 
-        # Persistent hand that survives resets
-        self.hand = []              # list[int], drawn cards
-
-        # --- UI ---
-        self.cell_text_ids = {}  # (row,col) -> canvas text id (for tests)
-        self.draw_grid()
-        self._draw_side_image()
-        self.draw_start_area()
-        self.draw_card_area()
+        # bookkeeping for tests/ids
+        self.cell_text_ids = {}
         self.side_image_id = None
-        self.side_image_dims = (0, 0)  # (w, h) of displayed image
-        self._draw_side_image()
+        self.side_image_dims = (0, 0)
 
-        # If we displayed an image, ensure canvas is wide enough for it
-        if self.side_image_id is not None:
-            grid_w = S.GRID_COLS * S.CELL_SIZE
-            base_w = (
-                    S.GRID_ORIGIN_X
-                    + grid_w
-                    + S.GRID_PADDING
-                    + self.side_image_dims[0]  # actual image width after scaling
-                    + S.GRID_PADDING
-            )
-            if int(self.canvas.cget("width")) < base_w:
-                self.canvas.config(width=base_w)
+        # --- canvas ---
+        w = S.GRID_ORIGIN_X + S.GRID_COLS * S.CELL_SIZE + S.GRID_PADDING + 300  # provisional width
+        h = S.CARD_AREA_Y + S.CARD_AREA_H + S.GRID_PADDING
+        self.canvas = tk.Canvas(root, width=w, height=h, bg="#f7f7fb")
+        self.canvas.pack()
 
+        # --- draw grid first ---
+        self.draw_grid()
+
+        # --- compute start area geometry BEFORE drawing/using it ---
+        start_box_width = S.CUBE_SIZE + 2 * S.START_AREA_PAD
+        start_box_height = 4 * S.CUBE_SIZE + 3 * S.CUBE_GAP + 2 * S.START_AREA_PAD
+        start_x = S.GRID_ORIGIN_X - S.GRID_PADDING - start_box_width
+        start_y = S.GRID_ORIGIN_Y
+        self._start_area_geom = (start_x, start_y, start_box_width, start_box_height)
+
+        # --- draw start area and label ---
+        self.draw_start_area()
+
+        # --- card/hand UI ---
+        self.draw_card_area()
+
+        # --- create cubes inside the start area ---
         self.cubes = []
         colors = ["#ff7f50", "#87cefa", "#98fb98", "#dda0dd"]
         for i in range(4):
-            x = S.START_AREA_X
-            y = S.START_AREA_Y + i * (S.CUBE_SIZE + S.CUBE_GAP)
+            x = start_x + S.START_AREA_PAD
+            y = start_y + S.START_AREA_PAD + i * (S.CUBE_SIZE + S.CUBE_GAP)
             self.cubes.append(Cube(self.canvas, i, x, y, colors[i % len(colors)]))
 
-        # Take Actions button — to the LEFT of the hand area, vertically centered
+        # --- side image (after grid) ---
+        self._draw_side_image()
+        if self.side_image_id is not None:
+            grid_w = S.GRID_COLS * S.CELL_SIZE
+            base_w = S.GRID_ORIGIN_X + grid_w + S.GRID_PADDING + self.side_image_dims[0] + S.GRID_PADDING
+            if int(float(self.canvas.cget("width"))) < base_w:
+                self.canvas.config(width=base_w)
+
+        # --- Take Actions button (left of hand area) ---
         btn_pad_x = 12
         btn_center_y = S.CARD_AREA_Y + S.CARD_AREA_H / 2
-
-        self.reset_button = tk.Button(self.root, text="Take Actions", command=self.reset_game)
-        self.reset_button_window = self.canvas.create_window(
-            S.CARD_AREA_X - btn_pad_x,  # just left of the hand box
-            btn_center_y,  # vertically centered against the hand
-            window=self.reset_button,
-            anchor="e"  # button's RIGHT edge sits at this x
+        self.take_action_button = tk.Button(self.root, text="Take Actions", command=self.take_actions)
+        self.take_action_button_window = self.canvas.create_window(
+            S.CARD_AREA_X - btn_pad_x, btn_center_y,
+            window=self.take_action_button, anchor="e"
         )
-        self.canvas.itemconfigure(self.reset_button_window, state="hidden")
+        self.canvas.itemconfigure(self.take_action_button_window, state="hidden")
 
-        # Bindings
+        # --- bindings ---
         self.canvas.bind("<Button-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_move)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
@@ -109,21 +117,25 @@ class Game:
                 if idx < len(BOARD_LABELS):
                     self.draw_cell_label(r, c, BOARD_LABELS[idx])
 
-        for c in range(S.GRID_COLS):
-            cx = S.GRID_ORIGIN_X + c * S.CELL_SIZE + S.CELL_SIZE / 2
-            self.canvas.create_text(cx, S.GRID_ORIGIN_Y - 12, text=f"Col {c+1}", font=("Helvetica", 10))
-
     def draw_start_area(self):
-        self.canvas.create_text(
-            S.START_AREA_X + 60, S.START_AREA_Y - 12,
-            text="Start Area",
-            font=("Helvetica", 12, "bold")
+        if not hasattr(self, "_start_area_geom"):
+            # fallback (shouldn’t happen now, but keeps tests resilient)
+            start_box_width = S.CUBE_SIZE + 2 * START_AREA_PAD
+            start_box_height = 4 * S.CUBE_SIZE + 3 * S.CUBE_GAP + 2 * START_AREA_PAD
+            start_x = S.GRID_ORIGIN_X - S.GRID_PADDING - start_box_width
+            start_y = S.GRID_ORIGIN_Y
+            self._start_area_geom = (start_x, start_y, start_box_width, start_box_height)
+
+        start_x, start_y, start_w, start_h = self._start_area_geom
+
+        self.start_area_label_id = self.canvas.create_text(
+            start_x + start_w / 2, start_y - 12,
+            text="Available Action Tokens",
+            font=("Helvetica", 12, "bold"), fill="black"
         )
-        self.canvas.create_rectangle(
-            S.START_AREA_X - 10, S.START_AREA_Y - 10,
-            S.START_AREA_X + S.CUBE_SIZE + 10,
-            S.START_AREA_Y + 4 * (S.CUBE_SIZE + S.CUBE_GAP) - S.CUBE_GAP + 10,
-            outline="#bbbbc6", dash=(4, 2)
+        self.start_area_rect_id = self.canvas.create_rectangle(
+            start_x, start_y, start_x + start_w, start_y + start_h,
+            outline="#bbbbc6", dash=(4, 2), fill=""
         )
 
     def draw_card_area(self):
@@ -213,13 +225,6 @@ class Game:
     def place_cube_and_handle_events(self, cube, row, col):
         cube.center_on_cell(row, col)
         self.occupied[(row, col)] = cube.idx
-        self.on_cube_placed(cube)
-
-    def on_cube_placed(self, cube):
-        row, col = cube.current_cell
-        # Draw only if placed in the **fourth column** (0-indexed col == 3)
-        if col == 3:
-            self.draw_card()
 
     # ---- Helpers ----
     def cell_from_cube_center(self, cube):
@@ -237,6 +242,16 @@ class Game:
 
     def can_place(self, cell):
         return cell not in self.occupied
+
+    def cubes_on_final_column(self):
+        """Return list of cubes currently on the final column (row, col)."""
+        results = []
+        for cube in self.cubes:
+            if cube.current_cell:
+                row, col = cube.current_cell
+                if col == S.GRID_COLS - 1 and row in (0, 1, 2):  # adjust if you only want rows 0-2
+                    results.append((row, col))
+        return results
 
     def draw_cell_label(self, row, col, text):
         CELL_TEXT_PAD = 10  # inner padding in each cell
@@ -287,39 +302,38 @@ class Game:
         self.cell_text_ids[(row, col)] = t_id
 
     def _draw_side_image(self):
-        """
-        Load images/Continents.jpg and place it to the right of the grid.
-        Scale so image height == grid height (maintain aspect ratio).
-        """
         if Image is None or ImageTk is None:
-            return  # Pillow not available
-
+            return
         try:
             img = Image.open(S.SIDE_IMAGE_PATH)
         except Exception:
-            return  # image not found or unreadable
+            return
 
-        grid_x0 = S.GRID_ORIGIN_X
-        grid_y0 = S.GRID_ORIGIN_Y
-        grid_w = S.GRID_COLS * S.CELL_SIZE
         grid_h = S.GRID_ROWS * S.CELL_SIZE
+        grid_w = S.GRID_COLS * S.CELL_SIZE
 
-        # Scale: set height to grid_h, width by aspect ratio
         orig_w, orig_h = img.size
         if orig_h == 0:
             return
         scale = grid_h / float(orig_h)
         new_w = max(1, int(round(orig_w * scale)))
         new_h = grid_h
-
         img = img.resize((new_w, new_h), Image.LANCZOS)
 
-        self._side_img_tk = ImageTk.PhotoImage(img)  # keep reference
-        x = grid_x0 + grid_w + S.GRID_PADDING
-        y = grid_y0  # align with top of grid
+        x = S.GRID_ORIGIN_X + grid_w + S.GRID_PADDING
+        y = S.GRID_ORIGIN_Y  # top-align with grid
 
-        self.side_image_id = self.canvas.create_image(x, y, image=self._side_img_tk, anchor="nw")
-        self.side_image_dims = (new_w, new_h)
+        try:
+            # CRITICAL: bind PhotoImage to the same Tk master as the canvas
+            self._side_img_tk = ImageTk.PhotoImage(img, master=self.canvas)
+            self.side_image_id = self.canvas.create_image(x, y, image=self._side_img_tk, anchor="nw")
+            self.side_image_dims = (new_w, new_h)
+        except tk.TclError:
+            # In headless/CI edge cases, just skip the image
+            self._side_img_tk = None
+            self.side_image_id = None
+            self.side_image_dims = (0, 0)
+            return
 
     # ---- Cards / Hand ----
     def draw_card(self):
@@ -357,21 +371,21 @@ class Game:
     def update_reset_visibility(self):
         placed = sum(1 for c in self.cubes if c.current_cell is not None)
         self.canvas.itemconfigure(
-            self.reset_button_window,
+            self.take_action_button_window,
             state=("normal" if placed == 4 else "hidden")
         )
 
-    def reset_game(self):
-        # Return cubes to start & clear board occupancy — DO NOT clear hand
+    def take_actions(self):
+        # 1) Draw a card for each cube in the final column (rows 0–2)
+        for _ in self.cubes_on_final_column():
+            self.draw_card()
+
+        # 2) Return cubes to start
         for cube in self.cubes:
             cube.return_to_start()
+
+        # 3) Clear board occupancy so future placements aren’t blocked
         self.occupied.clear()
 
-        # Reset deck (reshuffle) but keep visible hand as requested
-        self.deck = list(range(1, 51))
-        random.shuffle(self.deck)
-        self.canvas.itemconfigure(self.deck_text, text=f"Deck: {len(self.deck)}")
-        self.render_hand()  # keep showing cards already drawn
-
-        # Hide reset button
-        self.canvas.itemconfigure(self.reset_button_window, state="hidden")
+        # 4) Hide the button again
+        self.canvas.itemconfigure(self.take_action_button_window, state="hidden")

@@ -1,3 +1,5 @@
+START_AREA_PAD = 8  # inner padding inside the start area box
+
 # Grid layout
 GRID_ROWS = 3
 GRID_COLS = 4
