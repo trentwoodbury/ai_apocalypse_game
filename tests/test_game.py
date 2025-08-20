@@ -142,21 +142,18 @@ class TestGame(unittest.TestCase):
 
     def test_funds_deduct_on_take_actions(self):
         g = self.game
-        # Start funds
         start = g.funds.value
 
-        # Place tokens to trigger each cost stream once
-        # [0,0] -> compute_or_model first step = 0
-        g.place_cube_and_handle_events(g.cubes[0], 0, 0)
-        # [0,1] -> compute_or_model second step = 2
-        g.place_cube_and_handle_events(g.cubes[1], 0, 1)
-        # [0,2] -> lobby first step = 4
-        g.place_cube_and_handle_events(g.cubes[2], 0, 2)
-        # [1,1] -> scale_presence first step = 1
-        g.place_cube_and_handle_events(g.cubes[3], 1, 1)
+        # Place tokens that incur costs but do NOT trigger presence selection
+        g.place_cube_and_handle_events(g.cubes[0], 0, 0)  # compute_or_model step 0
+        g.place_cube_and_handle_events(g.cubes[1], 0, 1)  # compute_or_model step 2
+        g.place_cube_and_handle_events(g.cubes[2], 0, 2)  # lobby step 4
+        g.place_cube_and_handle_events(g.cubes[3], 2, 0)  # filler
 
-        g.take_actions()  # total expected deduction = 0 + 2 + 4 + 1 = 7
-        self.assertEqual(g.funds.value, max(0, start - 7))
+        g.take_actions()
+
+        # 0 + 2 + 4 = 6 total deduction
+        self.assertEqual(g.funds.value, start - 6)
 
     def test_take_actions_button_disables_when_insufficient_funds(self):
         g = self.game
@@ -201,6 +198,39 @@ class TestGame(unittest.TestCase):
         self.assertEqual([c.current_cell for c in g.cubes], pre_positions)
         # Toast exists
         self.assertTrue(getattr(g, "toast_id", None))
+
+    def test_presence_selection_flow_and_income(self):
+        g = self.game
+        # Ensure plenty of funds so the gate doesn't stop us
+        g.funds.add(1000)
+
+        # Place one token on [1,1] (scale presence), and one on [0,0] to bump compute
+        g.place_cube_and_handle_events(g.cubes[0], 1, 1)
+        g.place_cube_and_handle_events(g.cubes[1], 0, 0)
+
+        # Start take_actions -> should enter selection mode
+        g.take_actions()
+        self.assertTrue(g.selecting_regions)
+        self.assertEqual(g.selection_queue, 1)
+
+        # Simulate clicking inside North America hitbox
+        name = "North America"
+        x0, y0, x1, y1 = g.region_hitboxes[name]
+        fake_event = type("E", (), {"x": int((x0 + x1) / 2), "y": int((y0 + y1) / 2)})
+        g._maybe_region_click(fake_event)
+
+        # Selection consumed, actions finished
+        self.assertFalse(g.selecting_regions)
+        self.assertTrue(g.regions.has_presence("North America"))
+
+        # Income: set some reputation/power and run another empty take (to add income)
+        g.regions.region_at("North America").reputation = 2
+        g.regions.region_at("North America").power = 3
+        funds_before = g.funds.value
+
+        # No placements, but finish path still adds income (2*3=6)
+        g._finish_take_actions_after_selection()
+        self.assertEqual(g.funds.value, funds_before + 6)
 
 
 if __name__ == "__main__":

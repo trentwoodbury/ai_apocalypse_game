@@ -39,7 +39,7 @@ BOARD_LABELS = [
     "SCALE-OPERATIONS:\n+1 Action Token\nPay Scaling Operation Costs",
     "RESEARCH:\nDraw 3 research cards, keep 1 and pay cost",
     # Row 1
-    "MARKETING:\n+1 power in 1 region with presence",
+    "MARKETING:\n+1 reputation in 1 region with presence",
     "SCALE-PRESENCE:\n+1 Presence in a new region\nPay Scaling Presence Costs",
     "LOBBY:\n+1 power in a region with presence",
     "INFLUENCE:\nDraw 3 Influence cards, keep 1 and pay cost",
@@ -81,3 +81,24 @@ FUNDS_SERIES = {
     # indices [0,0] OR [0,1] share the same progression
     "compute_or_model": [0, 2, 4, 8, 16, 32, 64, 128],
 }
+
+# --- Regions (order matters for drawing & tests) ---
+REGION_NAMES = ["North America", "South America", "Europe", "Africa", "Asia", "Oceania"]
+
+# Relative hitboxes over the image (x0,y0,x1,y1) in FRACTIONS of the displayed image
+# These are approximate, sized to the colored continents in your provided map.
+# You can tweak any tuple if a click feels off.
+REGION_BBOXES_FRAC = {
+    "North America": (0.02, 0.10, 0.35, 0.44),
+    "South America": (0.10, 0.15, 0.45, 0.90),
+    "Europe":        (0.42, 0.05, 0.55, 0.26),
+    "Africa":        (0.42, 0.26, 0.60, 0.70),
+    "Asia":          (0.55, 0.08, 0.90, 0.55),
+    "Oceania":       (0.78, 0.55, 0.95, 0.90),
+}
+
+# Hex marker visuals
+REGION_HEX_RADIUS = 14
+REGION_HEX_FILL = "#000000"   # black outline only; fill empty looks cleaner on map
+REGION_HEX_OUTLINE = "#111"
+REGION_HEX_WIDTH = 3

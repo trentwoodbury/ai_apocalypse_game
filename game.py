@@ -7,6 +7,9 @@ from cube import Cube
 import tkinter.font as tkfont
 import textwrap
 
+from regions import RegionManager
+import math
+
 try:
     from PIL import Image, ImageTk  # Pillow
 except Exception:
@@ -90,6 +93,19 @@ class Game:
             y=funds_y,
         )
 
+        # --- Regions over the globe ---
+        self.regions = RegionManager(S.REGION_NAMES)
+
+        # Selection state if [1,1] was chosen this turn
+        self.selecting_regions = False
+        self.selection_queue = 0  # how many presence placements to make
+        self.region_hitboxes = {}  # name -> (x0,y0,x1,y1)
+        self.region_hex_ids = {}  # name -> canvas polygon id
+
+        # Build hitboxes now that the image is drawn & sized
+        self._build_region_hitboxes()  # computes pixel-space rects from fractional config
+        self._render_region_markers()  # draw initial markers (none yet)
+
         # --- Take Actions button (left of hand area) ---
         btn_pad_x = 12
         btn_center_y = S.CARD_AREA_Y + S.CARD_AREA_H / 2
@@ -105,6 +121,9 @@ class Game:
         self.canvas.bind("<B1-Motion>", self.on_mouse_move)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
 
+        # Extra binding to capture clicks on globe when selecting regions
+        self.canvas.bind("<Button-1>", self.on_mouse_down, add="+")
+        self.canvas.bind("<Button-1>", self._maybe_region_click, add="+")
 
     # ---- UI drawing ----
     def draw_grid(self):
@@ -395,20 +414,32 @@ class Game:
             self.take_action_button.config(state="normal")  # reset for next time
 
     def take_actions(self):
-        # Funds gate
+        # Funds gate first
         pending = self._pending_total_cost()
         if pending > self.funds.value:
             self._toast("Insufficient Funds")
             return
 
+        # Count how many presence placements we need (tokens at [1,1])
+        need_presence = sum(
+            1 for c in self.cubes if c.current_cell == (1, 1)
+        )
+        if need_presence > 0:
+            self.selection_queue = need_presence
+            self.selecting_regions = True
+            self._toast(f"Select a region ({self.selection_queue} remaining)")
+            return  # wait for user clicks; we’ll resume later
+
+        # Otherwise no presence picks needed; finish immediately
+        self._finish_take_actions_after_selection()
+
+    def _finish_take_actions_after_selection(self):
         # 1) Card draws for cubes in final column (rows 0–2)
         for _ in self.cubes_on_final_column():
             self.draw_card()
 
         # 2) Tracker bumps based on cube placements
         bumps_compute = bumps_model = bumps_chaos = 0
-
-        # 2b) Funds charges — count placements per action key for this turn
         charges = {"lobby": 0, "scale_presence": 0, "compute_or_model": 0}
 
         for cube in self.cubes:
@@ -416,7 +447,6 @@ class Game:
                 continue
             r, c = cube.current_cell
 
-            # trackers
             if (r, c) == (0, 0):
                 bumps_compute += 1
                 charges["compute_or_model"] += 1
@@ -426,31 +456,31 @@ class Game:
             elif (r, c) in ((2, 1), (2, 2)):
                 bumps_chaos += 1
 
-            # funds-only action
             if (r, c) == (0, 2):
                 charges["lobby"] += 1
             if (r, c) == (1, 1):
-                charges["scale_presence"] += 1
+                charges["scale_presence"] += 1  # cost progression only; presence was handled by clicks
 
-        # Apply tracker bumps
-        if bumps_compute:
-            self.inc_compute(bumps_compute)
-        if bumps_model:
-            self.inc_model(bumps_model)
-        if bumps_chaos:
-            self.inc_chaos(bumps_chaos)
+        if bumps_compute: self.inc_compute(bumps_compute)
+        if bumps_model:   self.inc_model(bumps_model)
+        if bumps_chaos:   self.inc_chaos(bumps_chaos)
 
-        # Apply funds charges (clamped to 0 internally)
+        # 3) Deduct funds for all placed actions (clamped in Funds)
         for key, n in charges.items():
             if n:
                 self.funds.charge(key, n)
 
-        # 3) Return cubes to start & clear occupancy
+        # 4) Income: SUM(rep) * SUM(power)
+        income = self.regions.total_reputation() * self.regions.total_power()
+        if income:
+            self.funds.add(income)
+
+        # 5) Reset tokens & occupancy
         for cube in self.cubes:
             cube.return_to_start()
         self.occupied.clear()
 
-        # 4) Hide the button again
+        # 6) Hide the button again
         self.canvas.itemconfigure(self.take_action_button_window, state="hidden")
 
     def _draw_trackers(self):
@@ -579,4 +609,78 @@ class Game:
             x, y, text=msg, fill="#b00020", font=("Helvetica", 12, "bold"), anchor="s"
         )
         self.canvas.after(millis, lambda: (self.canvas.delete(self.toast_id), setattr(self, "toast_id", None)))
+
+    def _build_region_hitboxes(self):
+        """Compute pixel hitboxes aligned to the displayed image."""
+        if not self.side_image_id or not self.side_image_dims:
+            return
+        img_x, img_y = self.canvas.coords(self.side_image_id)
+        img_w, img_h = self.side_image_dims
+
+        self.region_hitboxes.clear()
+        for name in S.REGION_NAMES:
+            fx0, fy0, fx1, fy1 = S.REGION_BBOXES_FRAC[name]
+            x0 = img_x + fx0 * img_w
+            y0 = img_y + fy0 * img_h
+            x1 = img_x + fx1 * img_w
+            y1 = img_y + fy1 * img_h
+            self.region_hitboxes[name] = (x0, y0, x1, y1)
+
+    def _hex_points(self, cx, cy, r):
+        pts = []
+        for i in range(6):
+            ang = math.radians(60 * i - 30)  # flat-top hex
+            pts.extend([cx + r * math.cos(ang), cy + r * math.sin(ang)])
+        return pts
+
+    def _render_region_markers(self):
+        """Render hex markers on regions with presence."""
+        # Clear existing
+        for poly_id in list(self.region_hex_ids.values()):
+            try:
+                self.canvas.delete(poly_id)
+            except Exception:
+                pass
+        self.region_hex_ids.clear()
+
+        for name, (x0, y0, x1, y1) in self.region_hitboxes.items():
+            if not self.regions.has_presence(name):
+                continue
+            cx = (x0 + x1) / 2
+            cy = (y0 + y1) / 2
+            pts = self._hex_points(cx, cy, S.REGION_HEX_RADIUS)
+            pid = self.canvas.create_polygon(
+                *pts, fill="", outline=S.REGION_HEX_OUTLINE, width=S.REGION_HEX_WIDTH
+            )
+            self.region_hex_ids[name] = pid
+
+    def _maybe_region_click(self, event):
+        """If we’re in region selection mode, consume a click to set presence."""
+        if not self.selecting_regions:
+            return
+
+        # Find which region (if any) contains the click
+        for name, (x0, y0, x1, y1) in self.region_hitboxes.items():
+            if x0 <= event.x <= x1 and y0 <= event.y <= y1:
+                # Place presence if not already present
+                if not self.regions.has_presence(name):
+                    self.regions.add_presence(name)
+                    self._render_region_markers()
+
+                # Consume one pending selection
+                self.selection_queue -= 1
+                if self.selection_queue <= 0:
+                    self.selecting_regions = False
+                    # Resume full action resolution now that selections are done
+                    self._finish_take_actions_after_selection()
+                else:
+                    # Prompt for another pick (toast)
+                    self._toast(f"Select a region ({self.selection_queue} remaining)")
+                return
+
+        # Clicked outside: give a hint
+        self._toast("Click a continent to place presence")
+
+
+
 
