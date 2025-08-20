@@ -1,6 +1,7 @@
 import tkinter as tk
 import random
 import settings as S
+from funds import Funds
 from cube import Cube
 
 import tkinter.font as tkfont
@@ -78,6 +79,17 @@ class Game:
 
         self._draw_trackers()
 
+        # Funds label right below trackers, aligned with their left edge
+        funds_x = getattr(self, "trackers_left_x", S.GRID_ORIGIN_X)
+        funds_y = getattr(self, "trackers_bottom_y", S.GRID_ORIGIN_Y) + 20
+        self.funds = Funds(
+            start_amount=S.FUNDS_START,
+            series_map=S.FUNDS_SERIES,
+            canvas=self.canvas,
+            x=funds_x,
+            y=funds_y,
+        )
+
         # --- Take Actions button (left of hand area) ---
         btn_pad_x = 12
         btn_center_y = S.CARD_AREA_Y + S.CARD_AREA_H / 2
@@ -92,6 +104,7 @@ class Game:
         self.canvas.bind("<Button-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_move)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
+
 
     # ---- UI drawing ----
     def draw_grid(self):
@@ -378,27 +391,45 @@ class Game:
         for _ in self.cubes_on_final_column():
             self.draw_card()
 
-        # 2) Tracker bumps based on cube placements:
-        bumps_compute = 0
-        bumps_model = 0
-        bumps_chaos = 0
+        # 2) Tracker bumps based on cube placements
+        bumps_compute = bumps_model = bumps_chaos = 0
+
+        # 2b) Funds charges — count placements per action key for this turn
+        charges = {"lobby": 0, "scale_presence": 0, "compute_or_model": 0}
+
         for cube in self.cubes:
             if not cube.current_cell:
                 continue
             r, c = cube.current_cell
+
+            # trackers
             if (r, c) == (0, 0):
                 bumps_compute += 1
+                charges["compute_or_model"] += 1
             elif (r, c) == (0, 1):
                 bumps_model += 1
+                charges["compute_or_model"] += 1
             elif (r, c) in ((2, 1), (2, 2)):
                 bumps_chaos += 1
 
+            # funds-only action
+            if (r, c) == (0, 2):
+                charges["lobby"] += 1
+            if (r, c) == (1, 1):
+                charges["scale_presence"] += 1
+
+        # Apply tracker bumps
         if bumps_compute:
             self.inc_compute(bumps_compute)
         if bumps_model:
             self.inc_model(bumps_model)
         if bumps_chaos:
             self.inc_chaos(bumps_chaos)
+
+        # Apply funds charges (clamped to 0 internally)
+        for key, n in charges.items():
+            if n:
+                self.funds.charge(key, n)
 
         # 3) Return cubes to start & clear occupancy
         for cube in self.cubes:
@@ -444,6 +475,9 @@ class Game:
         draw_row(top_y + 0 * row_h, "Compute", S.COMPUTE_STEPS, "compute")
         draw_row(top_y + 1 * row_h, "Model Version", S.MODEL_STEPS, "model")
         draw_row(top_y + 2 * row_h, "Chaos Created", S.CHAOS_STEPS, "chaos")
+
+        self.trackers_left_x = left_x
+        self.trackers_bottom_y = top_y + 3 * row_h
 
         # paint initial markers
         self._render_tracker_markers()

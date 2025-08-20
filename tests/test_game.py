@@ -136,5 +136,24 @@ class TestGame(unittest.TestCase):
         self.game.take_actions()
         self.assertEqual(self.game.chaos_idx, 2)
 
+    def test_funds_deduct_on_take_actions(self):
+        g = self.game
+        # Start funds
+        start = g.funds.value
+
+        # Place tokens to trigger each cost stream once
+        # [0,0] -> compute_or_model first step = 0
+        g.place_cube_and_handle_events(g.cubes[0], 0, 0)
+        # [0,1] -> compute_or_model second step = 2
+        g.place_cube_and_handle_events(g.cubes[1], 0, 1)
+        # [0,2] -> lobby first step = 4
+        g.place_cube_and_handle_events(g.cubes[2], 0, 2)
+        # [1,1] -> scale_presence first step = 1
+        g.place_cube_and_handle_events(g.cubes[3], 1, 1)
+
+        g.take_actions()  # total expected deduction = 0 + 2 + 4 + 1 = 7
+        self.assertEqual(g.funds.value, max(0, start - 7))
+
+
 if __name__ == "__main__":
     unittest.main()

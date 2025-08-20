@@ -41,7 +41,7 @@ BOARD_LABELS = [
     # Row 1
     "MARKETING:\n+1 power in 1 region with presence",
     "SCALE-PRESENCE:\n+1 Presence in a new region\nPay Scaling Presence Costs",
-    "LOBBY:\n+1 power in a region with presence\nPay $4",
+    "LOBBY:\n+1 power in a region with presence",
     "INFLUENCE:\nDraw 3 Influence cards, keep 1 and pay cost",
     # Row 2
     "SMEAR-CAMPAIGN:\n-1 reputation to a competitor with presence in the same region as you",
@@ -68,3 +68,16 @@ TRACKERS_HEIGHT = 120   # approx. 3*row height
 
 # Hand/card area is now pushed further down to make room for trackers:
 CARD_AREA_Y = GRID_ORIGIN_Y + GRID_ROWS * CELL_SIZE + 30 + TRACKERS_HEIGHT + 10
+
+# --- Funds / costs ---
+FUNDS_START = 10
+
+# Progressive cost sequences (truncate to last value if exceeded)
+FUNDS_SERIES = {
+    # index [0,2]
+    "lobby": [4, 10, 24],
+    # index [1,1]
+    "scale_presence": [1, 2, 3, 5, 8, 13],
+    # indices [0,0] OR [0,1] share the same progression
+    "compute_or_model": [0, 2, 4, 8, 16, 32, 64, 128],
+}
