@@ -6,6 +6,12 @@ from cube import Cube
 import tkinter.font as tkfont
 import textwrap
 
+try:
+    from PIL import Image, ImageTk  # Pillow
+except Exception:
+    Image = ImageTk = None
+
+
 
 BOARD_LABELS = S.BOARD_LABELS
 
@@ -13,7 +19,13 @@ class Game:
     def __init__(self, root):
         self.root = root
         self.root.title("4x4 Grid + 4 Cubes + Card Draw")
-        w = S.GRID_ORIGIN_X + S.GRID_COLS * S.CELL_SIZE + S.GRID_PADDING
+        w = (
+                S.GRID_ORIGIN_X
+                + S.GRID_COLS * S.CELL_SIZE
+                + S.GRID_PADDING
+                + S.SIDE_IMAGE_MAX_W  # reserve horizontal room for the image
+                + S.GRID_PADDING
+        )
         h = S.CARD_AREA_Y + S.CARD_AREA_H + S.GRID_PADDING
         self.canvas = tk.Canvas(root, width=w, height=h, bg="#f7f7fb")
         self.canvas.pack()
@@ -30,8 +42,25 @@ class Game:
         # --- UI ---
         self.cell_text_ids = {}  # (row,col) -> canvas text id (for tests)
         self.draw_grid()
+        self._draw_side_image()
         self.draw_start_area()
         self.draw_card_area()
+        self.side_image_id = None
+        self.side_image_dims = (0, 0)  # (w, h) of displayed image
+        self._draw_side_image()
+
+        # If we displayed an image, ensure canvas is wide enough for it
+        if self.side_image_id is not None:
+            grid_w = S.GRID_COLS * S.CELL_SIZE
+            base_w = (
+                    S.GRID_ORIGIN_X
+                    + grid_w
+                    + S.GRID_PADDING
+                    + self.side_image_dims[0]  # actual image width after scaling
+                    + S.GRID_PADDING
+            )
+            if int(self.canvas.cget("width")) < base_w:
+                self.canvas.config(width=base_w)
 
         self.cubes = []
         colors = ["#ff7f50", "#87cefa", "#98fb98", "#dda0dd"]
@@ -64,8 +93,10 @@ class Game:
             S.GRID_ORIGIN_X + S.GRID_COLS * S.CELL_SIZE / 2,
             20,
             text="Quarterly Strategy",
-            font=("Helvetica", 16, "bold")
+            font=("Helvetica", 16, "bold"),
+            fill="black"
         )
+
         for r in range(S.GRID_ROWS):
             for c in range(S.GRID_COLS):
                 x0 = S.GRID_ORIGIN_X + c * S.CELL_SIZE
@@ -99,9 +130,10 @@ class Game:
         # Title + deck
         self.canvas.create_text(
             S.GRID_ORIGIN_X + 100, S.CARD_AREA_Y - 8,
-            text=f"Hand (max {S.HAND_LIMIT}). Place on Column 1, Rows 1–3 to draw:",
+            text=f"Current Hand Limit: {S.HAND_LIMIT}).",
             anchor="w",
-            font=("Helvetica", 12, "bold")
+            font=("Helvetica", 12, "bold"),
+            fill="black"
         )
         self.canvas.create_rectangle(
             S.CARD_AREA_X, S.CARD_AREA_Y,
@@ -253,6 +285,41 @@ class Game:
         )
         # stash for testing
         self.cell_text_ids[(row, col)] = t_id
+
+    def _draw_side_image(self):
+        """
+        Load images/Continents.jpg and place it to the right of the grid.
+        Scale so image height == grid height (maintain aspect ratio).
+        """
+        if Image is None or ImageTk is None:
+            return  # Pillow not available
+
+        try:
+            img = Image.open(S.SIDE_IMAGE_PATH)
+        except Exception:
+            return  # image not found or unreadable
+
+        grid_x0 = S.GRID_ORIGIN_X
+        grid_y0 = S.GRID_ORIGIN_Y
+        grid_w = S.GRID_COLS * S.CELL_SIZE
+        grid_h = S.GRID_ROWS * S.CELL_SIZE
+
+        # Scale: set height to grid_h, width by aspect ratio
+        orig_w, orig_h = img.size
+        if orig_h == 0:
+            return
+        scale = grid_h / float(orig_h)
+        new_w = max(1, int(round(orig_w * scale)))
+        new_h = grid_h
+
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+
+        self._side_img_tk = ImageTk.PhotoImage(img)  # keep reference
+        x = grid_x0 + grid_w + S.GRID_PADDING
+        y = grid_y0  # align with top of grid
+
+        self.side_image_id = self.canvas.create_image(x, y, image=self._side_img_tk, anchor="nw")
+        self.side_image_dims = (new_w, new_h)
 
     # ---- Cards / Hand ----
     def draw_card(self):

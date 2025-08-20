@@ -1,8 +1,9 @@
+import os
 import unittest
 import tkinter as tk
 
 import settings as S
-from game import Game
+from game import Game, Image, ImageTk  # Image, ImageTk may be None
 
 class TestGameUI(unittest.TestCase):
     def setUp(self):
@@ -58,6 +59,31 @@ class TestGameUI(unittest.TestCase):
                 self.assertGreaterEqual(ty0 + tol, cy0)
                 self.assertLessEqual(tx1 - tol, cx1)
                 self.assertLessEqual(ty1 - tol, cy1)
+
+    def test_side_image_position_if_available(self):
+        if Image is None or ImageTk is None or not os.path.exists(S.SIDE_IMAGE_PATH):
+            self.skipTest("Side image not available in this environment")
+
+        self.assertIsNotNone(self.game.side_image_id)
+
+        # Coordinates
+        x, y = self.game.canvas.coords(self.game.side_image_id)
+        grid_right = S.GRID_ORIGIN_X + S.GRID_COLS * S.CELL_SIZE
+        grid_top = S.GRID_ORIGIN_Y
+        grid_h = S.GRID_ROWS * S.CELL_SIZE
+
+        # Placed to the right of the grid, aligned to grid top
+        self.assertGreaterEqual(x, grid_right + S.GRID_PADDING - 1)
+        self.assertAlmostEqual(y, grid_top, delta=1)
+
+        # Height should equal grid height exactly
+        img_w, img_h = self.game.side_image_dims
+        self.assertEqual(img_h, grid_h)
+
+        # Canvas wide enough to contain it
+        canvas_w = int(self.game.canvas.cget("width"))
+        expected_min_w = x + img_w + S.GRID_PADDING
+        self.assertGreaterEqual(canvas_w, expected_min_w - 1)
 
 
 if __name__ == "__main__":
