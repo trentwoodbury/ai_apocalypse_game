@@ -33,12 +33,16 @@ class Game:
             y = S.START_AREA_Y + i * (S.CUBE_SIZE + S.CUBE_GAP)
             self.cubes.append(Cube(self.canvas, i, x, y, colors[i % len(colors)]))
 
-        # Reset button (hidden initially)
-        self.reset_button = tk.Button(self.root, text="Reset Cubes", command=self.reset_game)
+        # Take Actions button — to the LEFT of the hand area, vertically centered
+        btn_pad_x = 12
+        btn_center_y = S.CARD_AREA_Y + S.CARD_AREA_H / 2
+
+        self.reset_button = tk.Button(self.root, text="Take Actions", command=self.reset_game)
         self.reset_button_window = self.canvas.create_window(
-            S.GRID_ORIGIN_X + S.GRID_COLS * S.CELL_SIZE - 80,
-            S.CARD_AREA_Y + S.CARD_AREA_H / 2,
-            window=self.reset_button
+            S.CARD_AREA_X - btn_pad_x,  # just left of the hand box
+            btn_center_y,  # vertically centered against the hand
+            window=self.reset_button,
+            anchor="e"  # button's RIGHT edge sits at this x
         )
         self.canvas.itemconfigure(self.reset_button_window, state="hidden")
 
@@ -107,21 +111,25 @@ class Game:
             fill="#a00"
         )
 
-        # Precompute hand slot positions
+        # Precompute hand slot positions (2 rows x 4 columns)
         self.hand_slot_ids = []  # [(rect_id, text_id), ...]
-        start_x = S.CARD_AREA_X + 10
-        y0 = S.CARD_AREA_Y + 32
+        start_x = S.CARD_AREA_X + 16
+        start_y = S.CARD_AREA_Y + 40
+
         for i in range(S.HAND_LIMIT):
-            x0 = start_x + i * (S.HAND_SLOT_W + S.HAND_SLOT_GAP)
+            r = i // S.HAND_COLS
+            c = i % S.HAND_COLS
+            x0 = start_x + c * (S.HAND_SLOT_W + S.HAND_SLOT_GAP_X)
+            y0 = start_y + r * (S.HAND_SLOT_H + S.HAND_SLOT_GAP_Y)
+
             rect_id = self.canvas.create_rectangle(
                 x0, y0, x0 + S.HAND_SLOT_W, y0 + S.HAND_SLOT_H,
-                fill="#ffffff", outline="#333"  # higher contrast
+                fill="#ffffff", outline="#333"
             )
             text_id = self.canvas.create_text(
                 x0 + S.HAND_SLOT_W / 2, y0 + S.HAND_SLOT_H / 2,
                 text="—", font=("Helvetica", 18, "bold"), fill="#111"
             )
-            # guarantee text is above the rectangle
             self.canvas.tag_raise(text_id, rect_id)
             self.hand_slot_ids.append((rect_id, text_id))
 
