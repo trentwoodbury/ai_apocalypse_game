@@ -95,6 +95,46 @@ class TestGame(unittest.TestCase):
         self.game.take_actions()
         self.assertEqual(len(self.game.hand), 1)  # after
 
+    def test_trackers_start_at_leftmost(self):
+        self.assertEqual(self.game.compute_idx, 0)
+        self.assertEqual(self.game.model_idx, 0)
+        self.assertEqual(self.game.chaos_idx, 0)
+
+    def test_take_actions_bumps_compute_on_0_0(self):
+        cube = self.game.cubes[0]
+        self.game.place_cube_and_handle_events(cube, 0, 0)
+        self.game.take_actions()
+        self.assertEqual(self.game.compute_idx, 1)
+
+    def test_take_actions_bumps_model_on_0_1_with_cap(self):
+        # Place model bump while compute at 0 — should not exceed compute after bumps
+        c = self.game.cubes[0]
+        self.game.place_cube_and_handle_events(c, 0, 1)
+        self.game.take_actions()
+        self.assertEqual(self.game.model_idx, 0)  # capped by compute
+
+        # Now raise compute to 2
+        c = self.game.cubes[0]
+        for _ in range(2):
+            self.game.place_cube_and_handle_events(c, 0, 0)
+            self.game.take_actions()
+        self.assertEqual(self.game.compute_idx, 2)
+
+        # Try to bump model 3 times, but it should cap at compute (2)
+        for _ in range(3):
+            self.game.place_cube_and_handle_events(c, 0, 1)
+            self.game.take_actions()
+        self.assertEqual(self.game.model_idx, 2)
+
+    def test_take_actions_bumps_chaos_on_2_1_and_2_2(self):
+        c = self.game.cubes[0]
+        self.game.place_cube_and_handle_events(c, 2, 1)
+        self.game.take_actions()
+        self.assertEqual(self.game.chaos_idx, 1)
+
+        self.game.place_cube_and_handle_events(c, 2, 2)
+        self.game.take_actions()
+        self.assertEqual(self.game.chaos_idx, 2)
 
 if __name__ == "__main__":
     unittest.main()

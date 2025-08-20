@@ -27,6 +27,12 @@ class Game:
         random.shuffle(self.deck)
         self.hand = []
 
+        # --- tracker state (leftmost index by default) ---
+        self.compute_idx = 0
+        self.model_idx = 0
+        self.chaos_idx = 0
+        self.tracker_items = {"compute": [], "model": [], "chaos": []}  # canvas ids for circles/text
+
         # bookkeeping for tests/ids
         self.cell_text_ids = {}
         self.side_image_id = None
@@ -69,6 +75,8 @@ class Game:
             base_w = S.GRID_ORIGIN_X + grid_w + S.GRID_PADDING + self.side_image_dims[0] + S.GRID_PADDING
             if int(float(self.canvas.cget("width"))) < base_w:
                 self.canvas.config(width=base_w)
+
+        self._draw_trackers()
 
         # --- Take Actions button (left of hand area) ---
         btn_pad_x = 12
@@ -366,16 +374,116 @@ class Game:
         )
 
     def take_actions(self):
-        # 1) Draw a card for each cube in the final column (rows 0–2)
+        # 1) Card draws for cubes in final column (rows 0–2)
         for _ in self.cubes_on_final_column():
             self.draw_card()
 
-        # 2) Return cubes to start
+        # 2) Tracker bumps based on cube placements:
+        bumps_compute = 0
+        bumps_model = 0
+        bumps_chaos = 0
+        for cube in self.cubes:
+            if not cube.current_cell:
+                continue
+            r, c = cube.current_cell
+            if (r, c) == (0, 0):
+                bumps_compute += 1
+            elif (r, c) == (0, 1):
+                bumps_model += 1
+            elif (r, c) in ((2, 1), (2, 2)):
+                bumps_chaos += 1
+
+        if bumps_compute:
+            self.inc_compute(bumps_compute)
+        if bumps_model:
+            self.inc_model(bumps_model)
+        if bumps_chaos:
+            self.inc_chaos(bumps_chaos)
+
+        # 3) Return cubes to start & clear occupancy
         for cube in self.cubes:
             cube.return_to_start()
-
-        # 3) Clear board occupancy so future placements aren’t blocked
         self.occupied.clear()
 
         # 4) Hide the button again
         self.canvas.itemconfigure(self.take_action_button_window, state="hidden")
+
+    def _draw_trackers(self):
+        """Draw three horizontal trackers below the globe, aligned under the grid/globe band."""
+        # Geometry
+        grid_w = S.GRID_COLS * S.CELL_SIZE
+        grid_h = S.GRID_ROWS * S.CELL_SIZE
+        img_x = S.GRID_ORIGIN_X + grid_w + S.GRID_PADDING
+        left_x = img_x  # left aligned with globe
+        top_y = S.GRID_ORIGIN_Y + grid_h + 10  # just below the globe
+        row_h = 36
+        pad_x = 10
+
+        # One row drawer
+        def draw_row(y, title, steps, marker_list_key):
+            # title
+            self.canvas.create_text(left_x, y, text=title + ":", anchor="w",
+                                    font=("Helvetica", 12, "bold"), fill="black")
+            # boxes
+            x = left_x + 110
+            self.tracker_items[marker_list_key] = []
+            for i, label in enumerate(steps):
+                w = 120 if marker_list_key != "chaos" else 60  # chaos numbers are narrow
+                rect = self.canvas.create_rectangle(x, y - 14, x + w, y + 14, outline="#222", fill="#eee")
+                txt = self.canvas.create_text((x + x + w) / 2, y, text=label,
+                                              font=("Helvetica", 11, "bold"), fill="#111")
+                # marker position (circle) centered in rect
+                cx = (x + x + w) / 2
+                cy = y
+                circle = self.canvas.create_oval(cx - 10, cy - 10, cx + 10, cy + 10, outline="", width=3)
+                self.tracker_items[marker_list_key].append((rect, txt, circle, (x, y, w)))
+                x += w + 8
+
+        draw_row(top_y + 0 * row_h, "Compute", S.COMPUTE_STEPS, "compute")
+        draw_row(top_y + 1 * row_h, "Model Version", S.MODEL_STEPS, "model")
+        draw_row(top_y + 2 * row_h, "Chaos Created", S.CHAOS_STEPS, "chaos")
+
+        # paint initial markers
+        self._render_tracker_markers()
+
+    def _render_tracker_markers(self):
+        """Position/visibility of the index markers (black circles)."""
+
+        def paint(key, idx):
+            items = self.tracker_items[key]
+            for i, (_rect, _txt, circle, (x, y, w)) in enumerate(items):
+                if i == idx:
+                    # center the circle over this box and make it visible
+                    cx = (x + x + w) / 2
+                    cy = y
+                    self.canvas.coords(circle, cx - 12, cy - 12, cx + 12, cy + 12)
+                    self.canvas.itemconfigure(circle, outline="black")
+                else:
+                    self.canvas.itemconfigure(circle, outline="")  # hide
+
+        paint("compute", self.compute_idx)
+        paint("model", self.model_idx)
+        paint("chaos", self.chaos_idx)
+        try:
+            self.canvas.update_idletasks()
+        except Exception:
+            pass
+
+    # --- tracker bumpers ---
+    def inc_compute(self, n=1):
+        self.compute_idx = min(self.compute_idx + n, len(S.COMPUTE_STEPS) - 1)
+        # model can never exceed compute
+        if self.model_idx > self.compute_idx:
+            self.model_idx = self.compute_idx
+        self._render_tracker_markers()
+
+    def inc_model(self, n=1):
+        # cap by compute
+        target = min(self.model_idx + n, self.compute_idx, len(S.MODEL_STEPS) - 1)
+        if target != self.model_idx:
+            self.model_idx = target
+            self._render_tracker_markers()
+
+    def inc_chaos(self, n=1):
+        self.chaos_idx = min(self.chaos_idx + n, len(S.CHAOS_STEPS) - 1)
+        self._render_tracker_markers()

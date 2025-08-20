@@ -16,7 +16,6 @@ START_AREA_Y = 40
 
 # Card/hand display area (unchanged unless you want to tweak)
 CARD_AREA_X = GRID_ORIGIN_X
-CARD_AREA_Y = GRID_ORIGIN_Y + GRID_ROWS * CELL_SIZE + 30
 CARD_AREA_W = GRID_COLS * CELL_SIZE
 
 # Hand rendering (2 rows x 4 cols)
@@ -56,3 +55,16 @@ SIDE_IMAGE_PATH = "images/Continents.jpg"
 SIDE_IMAGE_MAX_W = 240  # target width to reserve on the canvas
 # height will be clamped to grid height automatically (GRID_ROWS * CELL_SIZE)
 
+# --- Tracker steps (left-to-right indices) ---
+COMPUTE_STEPS = [
+    "10^8 GigaFLOPs","10^11 GigaFLOPs","10^14 GigaFLOPs","10^18 GigaFLOPs",
+    "10^27 GigaFLOPs","10^32 GigaFLOPs","10^40 GigaFLOPs","10^50 GigaFLOPs",
+]
+MODEL_STEPS   = ["V0","V0.5","V1","V1.5","V2","V3","V3.5","V4"]
+CHAOS_STEPS   = [str(x) for x in range(10, 181, 10)]  # 10..180
+
+# --- Space for trackers under the globe (height of 3 rows) ---
+TRACKERS_HEIGHT = 120   # approx. 3*row height
+
+# Hand/card area is now pushed further down to make room for trackers:
+CARD_AREA_Y = GRID_ORIGIN_Y + GRID_ROWS * CELL_SIZE + 30 + TRACKERS_HEIGHT + 10
