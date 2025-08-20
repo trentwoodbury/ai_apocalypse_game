@@ -427,8 +427,8 @@ class Game:
         if need_presence > 0:
             self.selection_queue = need_presence
             self.selecting_regions = True
-            self._toast(f"Select a region ({self.selection_queue} remaining)")
-            return  # wait for user clicks; we’ll resume later
+            self._show_center_popup(f"Select a region ({self.selection_queue} remaining)")
+            return
 
         # Otherwise no presence picks needed; finish immediately
         self._finish_take_actions_after_selection()
@@ -655,32 +655,106 @@ class Game:
             self.region_hex_ids[name] = pid
 
     def _maybe_region_click(self, event):
-        """If we’re in region selection mode, consume a click to set presence."""
-        if not self.selecting_regions:
+        """If we're in region selection mode, consume a click to set presence."""
+        if not getattr(self, "selecting_regions", False):
             return
 
-        # Find which region (if any) contains the click
         for name, (x0, y0, x1, y1) in self.region_hitboxes.items():
             if x0 <= event.x <= x1 and y0 <= event.y <= y1:
-                # Place presence if not already present
+                # Only count a selection if the region doesn't already have presence
                 if not self.regions.has_presence(name):
                     self.regions.add_presence(name)
                     self._render_region_markers()
+                    self.selection_queue -= 1
+                else:
+                    # Already present: keep popup up and ask for another pick
+                    self._update_center_popup(
+                        f"{name} already has presence. Select a different region ({self.selection_queue} remaining)"
+                    )
+                    return
 
-                # Consume one pending selection
-                self.selection_queue -= 1
                 if self.selection_queue <= 0:
+                    # Done selecting — hide popup and finish the action phase
+                    self._hide_center_popup()
                     self.selecting_regions = False
-                    # Resume full action resolution now that selections are done
                     self._finish_take_actions_after_selection()
                 else:
-                    # Prompt for another pick (toast)
-                    self._toast(f"Select a region ({self.selection_queue} remaining)")
-                return
+                    # More picks remaining; keep popup updated
+                    self._update_center_popup(
+                        f"Select a region ({self.selection_queue} remaining)"
+                    )
+                return  # stop after handling this click
 
-        # Clicked outside: give a hint
-        self._toast("Click a continent to place presence")
+        # Clicked outside any region while selecting: keep the popup visible as a reminder
+        self._update_center_popup(
+            f"Select a region ({self.selection_queue} remaining)"
+        )
 
+    def _show_center_popup(self, msg: str):
+        """Show a centered, light-grey popup with black text."""
+        # Clean any existing popup
+        self._hide_center_popup()
+
+        cw = int(float(self.canvas.cget("width")))
+        ch = int(float(self.canvas.cget("height")))
+        cx, cy = cw // 2, ch // 2
+
+        pad_x, pad_y = 16, 12
+        # First create text to measure its bbox
+        txt_id = self.canvas.create_text(
+            cx, cy,
+            text=msg,
+            font=("Helvetica", 14, "bold"),
+            fill="black",
+            anchor="c",
+            justify="center",
+            width=min(420, cw - 60),  # wrap if narrow canvas
+        )
+        tx0, ty0, tx1, ty1 = self.canvas.bbox(txt_id)
+        rx0 = tx0 - pad_x
+        ry0 = ty0 - pad_y
+        rx1 = tx1 + pad_x
+        ry1 = ty1 + pad_y
+
+        rect_id = self.canvas.create_rectangle(
+            rx0, ry0, rx1, ry1,
+            fill="#e9e9ee", outline="#555", width=2
+        )
+        # Raise text above the rectangle
+        self.canvas.tag_raise(txt_id, rect_id)
+
+        # Keep refs so we can update/hide
+        self._popup_rect_id = rect_id
+        self._popup_text_id = txt_id
+
+    def _update_center_popup(self, msg: str):
+        """Update the popup text (if showing)."""
+        if getattr(self, "_popup_text_id", None):
+            self.canvas.itemconfigure(self._popup_text_id, text=msg)
+            # re-center box to new text size
+            tx0, ty0, tx1, ty1 = self.canvas.bbox(self._popup_text_id)
+            pad_x, pad_y = 16, 12
+            rx0 = tx0 - pad_x
+            ry0 = ty0 - pad_y
+            rx1 = tx1 + pad_x
+            ry1 = ty1 + pad_y
+            if getattr(self, "_popup_rect_id", None):
+                self.canvas.coords(self._popup_rect_id, rx0, ry0, rx1, ry1)
+
+    def _hide_center_popup(self):
+        """Remove the popup if present."""
+        if getattr(self, "_popup_text_id", None):
+            try:
+                self.canvas.delete(self._popup_text_id)
+            except Exception:
+                pass
+            self._popup_text_id = None
+        if getattr(self, "_popup_rect_id", None):
+            try:
+                self.canvas.delete(self._popup_rect_id)
+            except Exception:
+                pass
+            self._popup_rect_id = None
 
 
 
