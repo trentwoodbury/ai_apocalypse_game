@@ -19,16 +19,6 @@ class Game:
     def __init__(self, root):
         self.root = root
         self.root.title("4x4 Grid + 4 Cubes + Card Draw")
-        w = (
-                S.GRID_ORIGIN_X
-                + S.GRID_COLS * S.CELL_SIZE
-                + S.GRID_PADDING
-                + S.SIDE_IMAGE_MAX_W  # reserve horizontal room for the image
-                + S.GRID_PADDING
-        )
-        h = S.CARD_AREA_Y + S.CARD_AREA_H + S.GRID_PADDING
-        self.canvas = tk.Canvas(root, width=w, height=h, bg="#f7f7fb")
-        self.canvas.pack()
 
         # --- state (UI reads this) ---
         self.occupied = {}
