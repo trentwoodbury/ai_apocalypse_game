@@ -64,11 +64,6 @@ class UIGridMixin:
 
     def draw_start_area(self):
         start_x, start_y, start_w, start_h = self._start_area_geom
-        self.start_area_label_id = self.canvas.create_text(
-            start_x + start_w / 2, start_y - 12,
-            text="Available Action Tokens",
-            font=("Helvetica", 12, "bold"), fill="black"
-        )
         self.start_area_rect_id = self.canvas.create_rectangle(
             start_x, start_y, start_x + start_w, start_y + start_h,
             outline="#bbbbc6", dash=(4, 2), fill=""
@@ -103,3 +98,51 @@ class UIGridMixin:
             self._side_img_tk = None
             self.side_image_id = None
             self.side_image_dims = (0, 0)
+
+    def _draw_ops_tracks(self):
+        # Titles
+        self.canvas.create_text(
+            S.OPS_ASP_X + S.OPS_TRACK_W/2, S.OPS_TRACK_TOP - 14,
+            text="Aspirational Action Tokens", font=("Helvetica", 12, "bold"),
+            fill="black", anchor="s"
+        )
+        self.canvas.create_text(
+            S.OPS_AVAIL_X + S.OPS_TRACK_W/2, S.OPS_TRACK_TOP - 14,
+            text="Available Action Tokens", font=("Helvetica", 12, "bold"),
+            fill="black", anchor="s"
+        )
+        # Columns
+        self.ops_asp_rect = self.canvas.create_rectangle(
+            S.OPS_ASP_X, S.OPS_TRACK_TOP,
+            S.OPS_ASP_X + S.OPS_TRACK_W, S.OPS_TRACK_TOP + S.OPS_TRACK_H,
+            outline="#bbbbc6", fill="#e7f2ff"
+        )
+        self.ops_avail_rect = self.canvas.create_rectangle(
+            S.OPS_AVAIL_X, S.OPS_TRACK_TOP,
+            S.OPS_AVAIL_X + S.OPS_TRACK_W, S.OPS_TRACK_TOP + S.OPS_TRACK_H,
+            outline="#bbbbc6", fill="#e7f2ff"
+        )
+
+    def _ops_slot_starts(self, left_x):
+        y = S.OPS_TRACK_TOP + S.OPS_TRACK_PAD + S.OPS_DISC_R
+        out = []
+        for _ in range(S.OPS_MAX_TOKENS):
+            cx = left_x + S.OPS_TRACK_W/2
+            cy = y
+            out.append((cx - S.OPS_DISC_R, cy - S.OPS_DISC_R))
+            y += 2 * S.OPS_DISC_R + S.OPS_DISC_GAP
+        return out
+
+    def _reset_tokens_to_tracks(self):
+        asp_slots = self._ops_slot_starts(S.OPS_ASP_X)
+        ava_slots = self._ops_slot_starts(S.OPS_AVAIL_X)
+
+        avail = [c for c in self.cubes if not c.locked]
+        locked = [c for c in self.cubes if c.locked]
+
+        for i, c in enumerate(sorted(avail, key=lambda x: x.idx)):
+            x, y = ava_slots[i]
+            c.set_start(x, y)
+        for i, c in enumerate(sorted(locked, key=lambda x: x.idx)):
+            x, y = asp_slots[i]
+            c.set_start(x, y)

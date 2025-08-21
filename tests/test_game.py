@@ -22,7 +22,8 @@ class TestGame(unittest.TestCase):
 
     def test_take_actions_draws_cards_for_cubes_in_final_column(self):
         # place a cube in final column row 0
-        cube = self.game.cubes[0]
+        cube = next(c for c in self.game.cubes if not c.locked)
+
         cube.current_cell = (0, S.GRID_COLS - 1)
 
         before = len(self.game.hand)
@@ -39,7 +40,7 @@ class TestGame(unittest.TestCase):
         self.assertEqual(len(self.game.hand), 0)
 
     def test_no_card_drawn_until_take_actions(self):
-        cube = self.game.cubes[0]
+        cube = next(c for c in self.game.cubes if not c.locked)
         cube.current_cell = (0, S.GRID_COLS - 1)
 
         # hand still empty before pressing button
@@ -88,7 +89,7 @@ class TestGame(unittest.TestCase):
         self.assertNotEqual(before, after)
 
     def test_draw_occurs_on_take_actions(self):
-        cube = self.game.cubes[0]
+        cube = next(c for c in self.game.cubes if not c.locked)
         cube.current_cell = (0, S.GRID_COLS - 1)  # simulate cube placed in final column
 
         self.assertEqual(len(self.game.hand), 0)  # before
@@ -101,7 +102,7 @@ class TestGame(unittest.TestCase):
         self.assertEqual(self.game.chaos_idx, 0)
 
     def test_take_actions_bumps_compute_on_0_0(self):
-        cube = self.game.cubes[0]
+        cube = next(c for c in self.game.cubes if not c.locked)
         self.game.place_cube_and_handle_events(cube, 0, 0)
         self.game.take_actions()
         self.assertEqual(self.game.compute_idx, 1)
@@ -131,7 +132,7 @@ class TestGame(unittest.TestCase):
         self.assertEqual(g.model_idx, 2)
 
     def test_take_actions_bumps_chaos_on_2_1_and_2_2(self):
-        c = self.game.cubes[0]
+        c = next(c for c in self.game.cubes if not c.locked)
         self.game.place_cube_and_handle_events(c, 2, 1)
         self.game.take_actions()
         self.assertEqual(self.game.chaos_idx, 1)

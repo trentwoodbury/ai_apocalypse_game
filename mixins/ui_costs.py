@@ -75,9 +75,16 @@ class UICostsMixin:
             add_line(label, bold=bold)
 
         add_line("", pad_top=6)
+        # --- Section: Scaling Operation Costs ---
         add_line("Scaling Operation Costs", bold=True)
-        for actions in (2, 3, 4):
-            add_line(f"{actions} Actions: ${S.SCALING_OPERATION_COSTS[actions]}")
+
+        # The next cost is the total tokens we’re targeting (2,3,4),
+        # based on current available tokens.
+        next_ops_total = min(self.ops_available + 1, S.OPS_MAX_TOKENS)
+        for total in (2, 3, 4):
+            label = f"{total} Actions: ${S.SCALING_OPERATION_COSTS[total]}"
+            bold = (total == next_ops_total and self.ops_available < S.OPS_MAX_TOKENS)
+            add_line(label, bold=bold)
 
         add_line("", pad_top=6)
         add_line("Scaling Presence Costs", bold=True)

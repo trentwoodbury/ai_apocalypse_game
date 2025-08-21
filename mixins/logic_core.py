@@ -5,7 +5,7 @@ class LogicCoreMixin:
     # Mouse + placement
     def on_mouse_down(self, event):
         for cube in reversed(self.cubes):
-            if cube.contains(event.x, event.y):
+            if cube.contains(event.x, event.y) and not cube.locked:
                 self.active_cube = cube
                 cube.begin_drag(event.x, event.y)
                 if cube.current_cell is not None:
@@ -25,14 +25,16 @@ class LogicCoreMixin:
         cell = self.cell_from_cube_center(cube)
         if cell and self.can_place(cell):
             r, c = cell
-            self.place_cube_and_handle_events(cube, r, c)
+            self.active_cube.center_on_cell(r, c, S.GRID_ORIGIN_X, S.GRID_ORIGIN_Y, S.CELL_SIZE)
+            self.occupied[(r, c)] = self.active_cube.idx
         else:
             cube.return_to_start()
         self.update_reset_visibility()
         self.active_cube = None
 
     def place_cube_and_handle_events(self, cube, row, col):
-        cube.center_on_cell(row, col)
+        # snap to grid with explicit geometry
+        cube.center_on_cell(row, col, S.GRID_ORIGIN_X, S.GRID_ORIGIN_Y, S.CELL_SIZE)
         self.occupied[(row, col)] = cube.idx
 
     def cell_from_cube_center(self, cube):
@@ -60,7 +62,7 @@ class LogicCoreMixin:
     # Buttons / gating
     def update_reset_visibility(self):
         placed = sum(1 for c in self.cubes if c.current_cell is not None)
-        if placed == 4:
+        if placed >= 1:
             self.canvas.itemconfigure(self.take_action_button_window, state="normal")
 
             pending_cost = self._pending_total_cost()
@@ -123,7 +125,7 @@ class LogicCoreMixin:
                 r.adjust_rep(+1); r.adjust_power(+1)
 
         bumps_compute = bumps_model = 0
-        charges = {"lobby": 0, "scale_presence": 0, "compute_or_model": 0}
+        charges = {"lobby": 0, "scale_presence": 0, "compute_or_model": 0, "scale_operations": 0}
 
         for cube in self.cubes:
             if not cube.current_cell: continue
@@ -135,9 +137,20 @@ class LogicCoreMixin:
             if (r, c) in ((2, 1), (2, 2)):
                 pass
             if (r, c) == (0, 2):
-                charges["lobby"] += 1
+                charges["scale_operations"] += 1
             if (r, c) == (1, 1):
                 charges["scale_presence"] += 1
+
+        ops_to_add = charges.get("scale_operations", 0)
+        while ops_to_add > 0 and self.ops_available < S.OPS_MAX_TOKENS and self.ops_aspirational > 0:
+            # flip one locked token to available
+            for c in self.cubes:
+                if c.locked:
+                    c.locked = False
+                    self.ops_available += 1
+                    self.ops_aspirational -= 1
+                    break
+            ops_to_add -= 1
 
         if bumps_compute: self.inc_compute(bumps_compute)
         if bumps_model: self.inc_model(bumps_model)
@@ -148,19 +161,27 @@ class LogicCoreMixin:
         income = self.regions.total_reputation() * self.regions.total_power()
         if income: self.funds.add(income)
 
-        for cube in self.cubes: cube.return_to_start()
+        # refresh costs panel so bold moves to next ops price
+        self._render_costs_panel()
+
+        # reset tokens back to their tracks (positions) and clear placements
+        for cube in self.cubes:
+            cube.current_cell = None
+        self._reset_tokens_to_tracks()
         self.occupied.clear()
         self.canvas.itemconfigure(self.take_action_button_window, state="hidden")
 
     # Cost helpers / toast
     def _charges_for_current_turn(self):
-        charges = {"lobby": 0, "scale_presence": 0, "compute_or_model": 0}
+        charges = {"lobby": 0, "scale_presence": 0, "compute_or_model": 0, "scale_operations": 0}
         for cube in self.cubes:
             if not cube.current_cell: continue
             r, c = cube.current_cell
             if (r, c) in ((0, 0), (0, 1)): charges["compute_or_model"] += 1
             if (r, c) == (0, 2): charges["lobby"] += 1
             if (r, c) == (1, 1): charges["scale_presence"] += 1
+            if (r, c) == (0, 2): charges["scale_operations"] += 1
+
         return charges
 
     def _pending_total_cost(self):

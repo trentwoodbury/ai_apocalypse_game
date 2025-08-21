@@ -67,6 +67,23 @@ CHAOS_STEPS   = [x for x in range(10, 181, 10)]  # 10..180
 # --- Trackers ---
 MODEL_STEPS = ["0","1","2","3","4","5","6","7"]
 
+# --- Action token (operations) tracks ---
+OPS_MAX_TOKENS = 4         # total tokens when fully scaled
+OPS_START_AVAILABLE = 1    # start with 1 draggable
+OPS_START_ASPIRATIONAL = 3 # shown, not draggable
+
+# columns just left of the grid (stacked vertically)
+OPS_TRACK_W = 140
+OPS_TRACK_H = CELL_SIZE * 3 + 40   # enough for 3-4 discs
+OPS_TRACK_PAD = 16
+OPS_DISC_R = 22
+OPS_DISC_GAP = 16
+
+# Left of grid: two vertical boxes (Aspirational, then Available), side-by-side
+OPS_ASP_X = GRID_ORIGIN_X - GRID_PADDING - 2*OPS_TRACK_W - 14
+OPS_AVAIL_X = OPS_ASP_X + OPS_TRACK_W + 14
+OPS_TRACK_TOP = GRID_ORIGIN_Y
+
 # --- Costs / progressions (displayed in right panel) ---
 MODEL_UPGRADE_COSTS = [0, 2, 4, 8, 16, 32, 64, 128]     # for going to model 0..7
 SCALING_OPERATION_COSTS = {2: 4, 3: 10, 4: 24}          # shown (no bold logic yet)
@@ -88,6 +105,7 @@ FUNDS_SERIES = {
     "scale_presence": [1, 2, 3, 5, 8, 13],
     # indices [0,0] OR [0,1] share the same progression
     "compute_or_model": [0, 2, 4, 8, 16, 32, 64, 128],
+    "scale_operations": [4, 10, 24]  # adding action tokens
 }
 
 # --- Regions (order matters for drawing & tests) ---

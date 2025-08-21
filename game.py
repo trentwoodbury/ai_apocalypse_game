@@ -27,7 +27,7 @@ class Game(UIGridMixin, UICardsMixin, UICostsMixin, UITrackersMixin, UIRegionsMi
 
     def __init__(self, root):
         self.root = root
-        self.root.title("4x4 Grid + 4 Cubes + Card Draw")
+        self.root.title("AI Apocalypser")
         self.regions = RegionManager(S.REGION_NAMES)
 
         self.occupied = {}
@@ -65,12 +65,26 @@ class Game(UIGridMixin, UICardsMixin, UICostsMixin, UITrackersMixin, UIRegionsMi
         self.draw_start_area()
         self.draw_card_area()
 
+        # ----- ops tracks + tokens -----
+        self._draw_ops_tracks()
+
+        asp_slots = self._ops_slot_starts(S.OPS_ASP_X)
+        ava_slots = self._ops_slot_starts(S.OPS_AVAIL_X)
+
+        self.ops_available = S.OPS_START_AVAILABLE
+        self.ops_aspirational = S.OPS_START_ASPIRATIONAL
+
         self.cubes = []
         colors = ["#ff7f50", "#87cefa", "#98fb98", "#dda0dd"]
-        for i in range(4):
-            x = start_x + S.START_AREA_PAD
-            y = start_y + S.START_AREA_PAD + i * (S.CUBE_SIZE + S.CUBE_GAP)
-            self.cubes.append(Cube(self.canvas, i, x, y, colors[i % len(colors)]))
+
+        # 1 available token (draggable)
+        ax, ay = ava_slots[0]
+        self.cubes.append(Cube(self.canvas, 0, ax, ay, colors[0], locked=False))
+
+        # 3 aspirational tokens (locked)
+        for i in range(1, 1 + self.ops_aspirational):
+            x, y = asp_slots[i - 1]
+            self.cubes.append(Cube(self.canvas, i, x, y, colors[i % len(colors)], locked=True))
 
         self._draw_side_image()
         if self.side_image_id is not None:

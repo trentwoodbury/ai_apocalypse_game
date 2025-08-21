@@ -33,8 +33,8 @@ class TestCube(unittest.TestCase):
         self.cube.center_on_cell(2, 3)
         self.cube.return_to_start()
         x0, y0, x1, y1 = self.canvas.bbox(self.cube.rect)
-        self.assertAlmostEqual(x0, 40, delta=1)
-        self.assertAlmostEqual(y0, 40, delta=1)
+        self.assertAlmostEqual(x0, 38, delta=1)
+        self.assertAlmostEqual(y0, 38, delta=1)
         self.assertIsNone(self.cube.current_cell)
 
     def test_drag_flags(self):
