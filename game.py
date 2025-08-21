@@ -83,6 +83,9 @@ class Game:
             if int(float(self.canvas.cget("width"))) < base_w:
                 self.canvas.config(width=base_w)
 
+        # right-hand requirements/costs panel
+        self._draw_costs_panel()
+
         self._draw_trackers()
         funds_x = self.trackers_left_x
         funds_y = self.trackers_bottom_y + 20
@@ -517,18 +520,24 @@ class Game:
         self.canvas.itemconfigure(self.take_action_button_window, state="hidden")
 
     def _draw_trackers(self):
-        """Draw Compute, Model, and the 2x3 Region Panels under the globe."""
+        """Draw Compute, Model, and the 2x3 Region Panels below the costs panel."""
         grid_w = S.GRID_COLS * S.CELL_SIZE
         grid_h = S.GRID_ROWS * S.CELL_SIZE
         img_x = S.GRID_ORIGIN_X + grid_w + S.GRID_PADDING
         left_x = img_x
-        top_y = S.GRID_ORIGIN_Y + grid_h + 10
-        row_h = S.TRACKER_ROW_H
 
-        # Keep for placing Funds label later
+        # 1) Draw right-hand costs panel first (so we can position everything below it)
+        self._draw_costs_panel()
+        # Figure out the bottom of the costs panel using its tag bbox
+        cb = self.canvas.bbox(self.costs_panel_tag)
+        costs_bottom_y = cb[3] if cb else (S.GRID_ORIGIN_Y + 200)
+
+        # 2) Now place trackers just below that
+        top_y = costs_bottom_y + 20
+        row_h = S.TRACKER_ROW_H
         self.trackers_left_x = left_x
 
-        # 1) Compute & Model rows (single trackers)
+        # Compute tracker row
         self._draw_tracker_row(
             y=top_y + 0 * row_h,
             title="Compute",
@@ -536,21 +545,20 @@ class Game:
             key="compute",
             active_idx=self.compute_idx
         )
+        # Model tracker row
         self._draw_tracker_row(
             y=top_y + 1 * row_h,
             title="Model Version",
-            steps=S.MODEL_STEPS,
+            steps=S.MODEL_STEPS,  # ["0","1","2","3","4","5","6","7"]
             key="model",
             active_idx=self.model_idx
         )
 
-        # 2) New 2x3 Region Summary panels (Presence/Power/Rep/Chaos)
-        # Place panels safely below the two tracker rows (+ extra padding)
-        panels_start_y = top_y + 2 * row_h + 16
-        self._draw_region_panels(start_y=panels_start_y)
+        # Region summary panels below the tracker rows
+        self._draw_region_panels(start_y=top_y + 2 * row_h)
 
         # Where to place Funds below the panels
-        self.trackers_bottom_y = getattr(self, "panels_bottom_y", panels_start_y + 1)
+        self.trackers_bottom_y = getattr(self, "panels_bottom_y", top_y + 1)
 
         # Widen canvas if needed based on rightmost content
         needed_w = int(self.trackers_rightmost_x + S.GRID_PADDING)
@@ -656,6 +664,7 @@ class Game:
             self.model_idx = target
             self._render_tracker_markers()
         self._set_tracker_active_index("model", self.model_idx)
+        self._render_costs_panel()
 
     def inc_chaos(self, n=1):
         self.chaos_idx = min(self.chaos_idx + n, len(S.CHAOS_STEPS) - 1)
@@ -780,6 +789,8 @@ class Game:
                 self._render_region_markers()
             # update the summary panel either way
             self._update_region_panel(hit_name)
+            self._render_costs_panel()  # refresh bold for next presence cost
+
 
         elif task["type"] == "rep+1":
             R = self.regions[hit_name]
@@ -937,6 +948,128 @@ class Game:
         # Track rightmost for potential canvas widening
         rightmost = base_x + S.REGION_PANEL_COLS * (col_w + S.REGION_PANEL_GAP_X) - S.REGION_PANEL_GAP_X
         self.trackers_rightmost_x = max(getattr(self, "trackers_rightmost_x", 0), rightmost)
+
+    def _draw_costs_panel(self):
+        """Create the right-hand 'Scaling Costs and Requirements' panel."""
+        # Anchor to the right of the map image
+        grid_w = S.GRID_COLS * S.CELL_SIZE
+        x_img = S.GRID_ORIGIN_X + grid_w + S.GRID_PADDING
+        img_w = getattr(self, "side_image_dims", (0, 0))[0]
+
+        x = x_img + img_w + S.GRID_PADDING
+        y = S.GRID_ORIGIN_Y
+        w = S.COSTS_PANEL_W
+
+        # Ensure canvas is wide enough
+        needed_w = x + w + S.GRID_PADDING
+        current_w = int(float(self.canvas.cget("width")))
+        if needed_w > current_w:
+            self.canvas.config(width=needed_w)
+
+        # Tag all elements of this panel so we can get a reliable bbox later
+        self.costs_panel_tag = "costs_panel"
+
+        # Title (BOX TITLE)
+        self.costs_title_id = self.canvas.create_text(
+            x, y, anchor="nw", fill="black",
+            font=("Helvetica", 13, "bold"),
+            text="Scaling Costs and Requirements",
+            tags=(self.costs_panel_tag,)
+        )
+        y += 22
+
+        # Panel background (height will be adjusted after rendering)
+        # Set a provisional height; _render_costs_panel will resize it.
+        self.costs_rect_id = self.canvas.create_rectangle(
+            x, y, x + w, y + 100, outline="#bbb", fill="#f7f7fb",
+            tags=(self.costs_panel_tag,)
+        )
+
+        # Lines will be created by renderer; keep a list for tests
+        self.costs_line_ids = []
+        self._render_costs_panel()  # initial draw
+
+    def _render_costs_panel(self):
+        """(Re)render the right-hand panel, bolding the 'next' items.
+           Also records (text_id, bold, text) in self.costs_line_ids for tests,
+           and resizes the background rect to fit content.
+        """
+        if not hasattr(self, "costs_rect_id"):
+            return  # not yet drawn
+
+        # wipe previous line items
+        for tid, *_ in getattr(self, "costs_line_ids", []):
+            try:
+                self.canvas.delete(tid)
+            except Exception:
+                pass
+        self.costs_line_ids = []  # will store (tid, bold, text)
+
+        # geometry
+        x1, y1, x2, _ = self.canvas.coords(self.costs_rect_id)
+        x = x1 + S.COSTS_PANEL_PAD
+        y = y1 + S.COSTS_PANEL_PAD
+        line_gap = 4
+
+        def add_line(text, bold=False, pad_top=0):
+            nonlocal y
+            y += pad_top
+            tid = self.canvas.create_text(
+                x, y, anchor="nw", fill="black",
+                font=("Helvetica", 11, "bold" if bold else "normal"),
+                text=text,
+                tags=(self.costs_panel_tag,)
+            )
+            # record for tests
+            self.costs_line_ids.append((tid, bold, text))
+            y += 18 + line_gap
+
+        # --- figure out which ones should be bold ---
+        next_model_idx = self.model_idx + 1 if self.model_idx < len(S.MODEL_STEPS) - 1 else None
+        presence_count = len(self.regions.with_presence())
+        next_presence_idx = presence_count if presence_count < len(S.SCALING_PRESENCE_COSTS) else None
+
+        # --- Section: Model Version Scaling Requirements ---
+        add_line("Model Version Scaling Requirements", bold=True, pad_top=0)
+
+        for tgt in range(len(S.MODEL_STEPS)):
+            cost = S.MODEL_UPGRADE_COSTS[tgt]
+            compute_req = S.COMPUTE_STEPS[tgt] if tgt < len(S.COMPUTE_STEPS) else ""
+            label = f"V{tgt}: Pay ${cost}, {compute_req}"
+            bold = (next_model_idx == tgt)
+            add_line(label, bold=bold)
+
+        # spacer
+        add_line("", pad_top=6)
+
+        # --- Section: Scaling Operation Costs ---
+        add_line("Scaling Operation Costs", bold=True)
+        for actions in (2, 3, 4):
+            add_line(f"{actions} Actions: ${S.SCALING_OPERATION_COSTS[actions]}")
+
+        add_line("", pad_top=6)
+
+        # --- Section: Scaling Presence Costs ---
+        add_line("Scaling Presence Costs", bold=True)
+        for idx, cost in enumerate(S.SCALING_PRESENCE_COSTS, start=1):
+            if idx == 1:
+                label = f"{idx}st Region: ${cost}"
+            elif idx == 2:
+                label = f"{idx}nd Region: ${cost}"
+            elif idx == 3:
+                label = f"{idx}rd Region: ${cost}"
+            else:
+                label = f"{idx}th Region: ${cost}"
+            bold = (next_presence_idx is not None and (idx == next_presence_idx + 1))
+            add_line(label, bold=bold)
+
+        # --- resize the panel background to fit all lines exactly ---
+        # bbox of the whole panel tag = title + rect + lines
+        bx1, by1, bx2, by2 = self.canvas.bbox(self.costs_panel_tag)
+        # keep left/right the same as initial rect, but set height to content bottom + padding
+        # ensure at least original top and width
+        new_bottom = max(by2 + S.COSTS_PANEL_PAD, y1 + 40)
+        self.canvas.coords(self.costs_rect_id, x1, y1, x2, new_bottom)
 
     def _render_region_panel(self, name: str):
         R = self.regions[name]

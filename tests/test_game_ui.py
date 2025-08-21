@@ -12,8 +12,14 @@ class TestGameUI(unittest.TestCase):
         self.game = Game(self.root)
 
     def tearDown(self):
-        self.game.canvas.destroy()
-        self.root.destroy()
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+
+    def _bold_texts(self):
+        """Helper: return the list of texts currently rendered in bold."""
+        return [txt for (_tid, bold, txt) in getattr(self.game, "costs_line_ids", []) if bold]
 
     def test_hand_has_8_slots_and_fits_area(self):
         # ensure we made exactly 8 slots
@@ -109,6 +115,40 @@ class TestGameUI(unittest.TestCase):
         self.assertAlmostEqual(lx, (x0 + x1) / 2, delta=2)
         self.assertLess(ly, y0)  # above the box
         self.assertEqual(self.game.canvas.itemcget(label_id, "fill"), "black")
+
+    def test_costs_panel_bolds_next_presence_cost(self):
+        g = self.game
+
+        # Initially 0 presence -> next presence cost is 1st region: $1
+        g._render_costs_panel()
+        bolded = self._bold_texts()
+        self.assertIn("Model Version Scaling Requirements", bolded)  # header is bold
+        self.assertIn("1st Region: $1", bolded)
+
+        # Add presence in one region -> next becomes 2nd region: $2
+        g.regions.add_presence("Europe")
+        g._render_costs_panel()
+        bolded = self._bold_texts()
+        self.assertIn("2nd Region: $2", bolded)
+        # and 1st no longer needs to be bold (not strictly necessary, but nice to check)
+        self.assertNotIn("1st Region: $1", bolded)
+
+    def test_costs_panel_bolds_next_model_requirement(self):
+        g = self.game
+
+        # Initially: model=0, so next bold should be V1
+        g._render_costs_panel()
+        bolded = [txt for (_tid, bold, txt) in g.costs_line_ids if bold]
+        self.assertIn(f"V1: Pay ${S.MODEL_UPGRADE_COSTS[1]}, {S.COMPUTE_STEPS[1]}", bolded)
+
+        # Lift the compute cap so model can advance
+        g.inc_compute(3)  # now compute_idx >= 3
+
+        # Advance model by 2 (0 -> 2), so next bold should be V3
+        g.inc_model(2)
+        g._render_costs_panel()
+        bolded = [txt for (_tid, bold, txt) in g.costs_line_ids if bold]
+        self.assertIn(f"V3: Pay ${S.MODEL_UPGRADE_COSTS[3]}, {S.COMPUTE_STEPS[3]}", bolded)
 
 
 if __name__ == "__main__":

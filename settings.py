@@ -63,8 +63,19 @@ COMPUTE_STEPS = [
     "10^8 GigaFLOPs","10^11 GigaFLOPs","10^14 GigaFLOPs","10^18 GigaFLOPs",
     "10^27 GigaFLOPs","10^32 GigaFLOPs","10^40 GigaFLOPs","10^50 GigaFLOPs",
 ]
-MODEL_STEPS   = ["V0","V0.5","V1","V1.5","V2","V3","V3.5","V4"]
 CHAOS_STEPS   = [x for x in range(10, 181, 10)]  # 10..180
+# --- Trackers ---
+MODEL_STEPS = ["0","1","2","3","4","5","6","7"]
+
+# --- Costs / progressions (displayed in right panel) ---
+MODEL_UPGRADE_COSTS = [0, 2, 4, 8, 16, 32, 64, 128]     # for going to model 0..7
+SCALING_OPERATION_COSTS = {2: 4, 3: 10, 4: 24}          # shown (no bold logic yet)
+SCALING_PRESENCE_COSTS  = [1, 2, 3, 5, 8, 13]           # 1st..6th region
+
+# --- Right-hand requirements panel layout ---
+COSTS_PANEL_W = 360
+COSTS_PANEL_PAD = 12
+
 
 # --- Funds / costs ---
 FUNDS_START = 10
