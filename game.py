@@ -517,7 +517,7 @@ class Game:
         self.canvas.itemconfigure(self.take_action_button_window, state="hidden")
 
     def _draw_trackers(self):
-        """Draw Compute, Model, and per-region Chaos trackers under the globe."""
+        """Draw Compute, Model, and the 2x3 Region Panels under the globe."""
         grid_w = S.GRID_COLS * S.CELL_SIZE
         grid_h = S.GRID_ROWS * S.CELL_SIZE
         img_x = S.GRID_ORIGIN_X + grid_w + S.GRID_PADDING
@@ -544,22 +544,15 @@ class Game:
             active_idx=self.model_idx
         )
 
-        # 2) Per-region Chaos rows
-        chaos_start_y = top_y + 2 * row_h
-        for i, region in enumerate(self.regions.regions.values()):
-            tracker_ids = self._draw_tracker_row(
-                y=chaos_start_y + i * row_h,
-                title=f"{region.name} Chaos",
-                steps=S.CHAOS_STEPS,
-                key=f"chaos:{region.name}",
-                active_idx=region.chaos // 10
-            )
-            region.attach_ui(self.canvas, tracker_ids)
+        # 2) New 2x3 Region Summary panels (Presence/Power/Rep/Chaos)
+        # Place panels safely below the two tracker rows (+ extra padding)
+        panels_start_y = top_y + 2 * row_h + 16
+        self._draw_region_panels(start_y=panels_start_y)
 
-        # Let Funds placement know where the tracker block ends
-        self.trackers_bottom_y = chaos_start_y + len(S.REGION_NAMES) * row_h
+        # Where to place Funds below the panels
+        self.trackers_bottom_y = getattr(self, "panels_bottom_y", panels_start_y + 1)
 
-        # Widen canvas if needed based on last row’s right edge
+        # Widen canvas if needed based on rightmost content
         needed_w = int(self.trackers_rightmost_x + S.GRID_PADDING)
         current_w = int(float(self.canvas.cget("width")))
         if needed_w > current_w:
@@ -775,7 +768,7 @@ class Game:
         task = self.selection_tasks[0]
 
         # Enforce presence when required
-        if task["requires_presence"] and not self.regions.has_presence(hit_name):
+        if task.get("requires_presence") and not self.regions.has_presence(hit_name):
             self._update_center_popup("Select a region WHERE YOU HAVE PRESENCE")
             return
 
@@ -783,27 +776,33 @@ class Game:
         if task["type"] == "add_presence":
             if not self.regions.has_presence(hit_name):
                 self.regions.add_presence(hit_name)
+                # if you draw hex markers on the map, keep this:
                 self._render_region_markers()
-            # else: picking an already-present region is fine; it’s idempotent
+            # update the summary panel either way
+            self._update_region_panel(hit_name)
 
         elif task["type"] == "rep+1":
-            self.regions[hit_name].adjust_rep(+1)
+            R = self.regions[hit_name]
+            R.adjust_rep(+1)
+            self._update_region_panel(hit_name)
 
         elif task["type"] == "power+1":
-            self.regions[hit_name].adjust_power(+1)
+            R = self.regions[hit_name]
+            R.adjust_power(+1)
+            self._update_region_panel(hit_name)
 
         elif task["type"] == "power+1_rep-2_chaos+10":
             R = self.regions[hit_name]
             R.adjust_power(+1)
             R.adjust_rep(-2)
-            R.set_chaos(R.chaos + 10)
-            self._update_region_chaos(hit_name)
+            R.set_chaos(R.chaos + S.CHAOS_STEP)
+            self._update_region_panel(hit_name)
 
         elif task["type"] == "rep-1_chaos+10":
             R = self.regions[hit_name]
             R.adjust_rep(-1)
-            R.set_chaos(R.chaos + 10)
-            self._update_region_chaos(hit_name)
+            R.set_chaos(R.chaos + S.CHAOS_STEP)
+            self._update_region_panel(hit_name)
 
         # Consume this task
         self.selection_tasks.pop(0)
@@ -892,6 +891,71 @@ class Game:
         if t["requires_presence"]:
             return f"Select a region WHERE YOU HAVE PRESENCE ({len(self.selection_tasks)} remaining)"
         return f"Select a region ({len(self.selection_tasks)} remaining)"
+
+    def _draw_region_panels(self, start_y=None):
+        """Draw a 2x3 grid of summary boxes for each region."""
+        grid_w = S.GRID_COLS * S.CELL_SIZE
+        grid_h = S.GRID_ROWS * S.CELL_SIZE
+        base_x = S.GRID_ORIGIN_X + grid_w + S.GRID_PADDING
+        y0 = start_y if start_y is not None else (S.GRID_ORIGIN_Y + grid_h + 10)
+
+        # Title
+        self.canvas.create_text(
+            base_x, y0, text=S.REGION_PANELS_TITLE, anchor="w",
+            font=("Helvetica", 13, "bold"), fill="black"
+        )
+        y0 += 24  # space under the title
+
+        self.region_panel_items = {}
+        col_w = S.REGION_PANEL_W
+        row_h = S.REGION_PANEL_H
+
+        for idx, name in enumerate(S.REGION_NAMES):
+            r = idx // S.REGION_PANEL_COLS
+            c = idx % S.REGION_PANEL_COLS
+            x = base_x + c * (col_w + S.REGION_PANEL_GAP_X)
+            y = y0 + r * (row_h + S.REGION_PANEL_GAP_Y)
+
+            rect = self.canvas.create_rectangle(
+                x, y, x + col_w, y + row_h,
+                outline="#bbb", fill="#f2f2f6"
+            )
+            text_id = self.canvas.create_text(
+                x + 10, y + 10, anchor="nw",
+                font=("Helvetica", 11), fill="black",
+                text=""
+            )
+            self.region_panel_items[name] = {"rect": rect, "text": text_id}
+
+        # Bottom edge for placing Funds
+        self.panels_bottom_y = y0 + (S.REGION_PANEL_ROWS) * (row_h + S.REGION_PANEL_GAP_Y) - S.REGION_PANEL_GAP_Y
+
+        # Render initial content
+        for name in S.REGION_NAMES:
+            self._render_region_panel(name)
+
+        # Track rightmost for potential canvas widening
+        rightmost = base_x + S.REGION_PANEL_COLS * (col_w + S.REGION_PANEL_GAP_X) - S.REGION_PANEL_GAP_X
+        self.trackers_rightmost_x = max(getattr(self, "trackers_rightmost_x", 0), rightmost)
+
+    def _render_region_panel(self, name: str):
+        R = self.regions[name]
+        lines = [
+            f"Region: {R.name}",
+            f"Presence: {'Yes' if R.player_presence else 'No'}",
+            f"Power: {R.power}",
+            f"Reputation: {R.reputation}",
+            f"Chaos: {R.chaos} out of {S.CHAOS_MAX}",
+        ]
+        text = "\n".join(lines)
+        tid = self.region_panel_items[name]["text"]
+        self.canvas.itemconfigure(tid, text=text)
+
+    def _update_region_panel(self, name: str):
+        if hasattr(self, "region_panel_items") and name in self.region_panel_items:
+            self._render_region_panel(name)
+
+
 
 
 

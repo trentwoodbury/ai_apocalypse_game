@@ -1,4 +1,3 @@
-# regions.py
 from dataclasses import dataclass
 import settings as S
 
@@ -6,43 +5,31 @@ import settings as S
 class Region:
     def __init__(self, name):
         self.name = name
-        self.chaos = 0
+        self.chaos = 0          # integer, 0..S.CHAOS_MAX, multiples of S.CHAOS_STEP
         self.player_presence = False
         self.reputation = 0
         self.power = 0
 
-        # UI hooks (optional)
+        # UI hooks (optional; used by Game)
         self.canvas = None
-        self.tracker_ids = None
+        self.tracker_ids = None  # legacy; no longer required
 
-    def attach_ui(self, canvas, tracker_ids):
-        """Attach UI elements so chaos/reputation updates redraw on canvas."""
+    def attach_ui(self, canvas, _rows_list):
+        """Kept for compatibility; panels are handled by Game now."""
         self.canvas = canvas
-        self.tracker_ids = tracker_ids
 
     def set_presence(self, value: bool = True):
-        """Set binary presence flag for the player in this region."""
         self.player_presence = bool(value)
 
-    def set_chaos(self, value):
-        # Clamp chaos to [0, 90]
-        self.chaos = max(0, min(value, 90))
+    @property
+    def presence(self):  # compatibility alias
+        return self.player_presence
 
-        # Update UI only if attached
-        if self.canvas and self.tracker_ids:
-            idx = self.chaos // 10
-            # self.tracker_ids is a list of row tuples (rect, txt, circle, geo)
-            for i, (_r, _t, circle, _geo) in enumerate(self.tracker_ids):
-                self.canvas.itemconfig(
-                    circle, fill="black" if i == idx else "white"
-                )
-
-    def _set_tracker_active_index(self, tracker_ids, idx):
-        # Clear all ovals
-        for i, oid in enumerate(tracker_ids):
-            self.canvas.itemconfig(
-                oid, fill="black" if i == idx else "white"
-            )
+    def set_chaos(self, value: int):
+        # Clamp and snap to steps of 10
+        v = max(0, min(int(value), S.CHAOS_MAX))
+        v = (v // S.CHAOS_STEP) * S.CHAOS_STEP
+        self.chaos = v
 
     def adjust_rep(self, delta: int):
         self.reputation += int(delta)
@@ -50,21 +37,16 @@ class Region:
     def adjust_power(self, delta: int):
         self.power += int(delta)
 
-    @property
-    def presence(self):
-        return self.player_presence
-
 
 class RegionManager:
-    def __init__(self, names):
+    def __init__(self, names=None):
+        from settings import REGION_NAMES
+        names = names or REGION_NAMES
         self.regions = {n: Region(n) for n in names}
 
-    # Optional ergonomic sugar:
     def __getitem__(self, name): return self.regions[name]
     def __contains__(self, name): return name in self.regions
-
-    def region_at(self, name: str) -> Region:
-        return self.regions[name]
+    def region_at(self, name): return self.regions[name]
 
     def total_reputation(self):
         return sum(r.reputation for r in self.regions.values())
@@ -80,7 +62,7 @@ class RegionManager:
         return name in self.regions and self.regions[name].player_presence
 
     def any_presence(self) -> bool:
-        return any(r.presence for r in self.regions.values())
+        return any(r.player_presence for r in self.regions.values())
 
     def with_presence(self):
-        return [r for r in self.regions.values() if r.presence]
+        return [r for r in self.regions.values() if r.player_presence]
