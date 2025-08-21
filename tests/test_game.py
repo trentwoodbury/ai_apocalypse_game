@@ -232,6 +232,79 @@ class TestGame(unittest.TestCase):
         g._finish_take_actions_after_selection()
         self.assertEqual(g.funds.value, funds_before + 6)
 
+    def test_global_buff_on_0_1(self):
+        g = self.game
+        g.funds.add(1000)
+        # Give presence in two regions
+        g.regions.add_presence("North America")
+        g.regions.add_presence("Asia")
+        # Place [0,1] and a filler
+        g.place_cube_and_handle_events(g.cubes[0], 0, 1)
+        g.place_cube_and_handle_events(g.cubes[1], 0, 0)
+        g.take_actions()
+        self.assertEqual(g.regions["North America"].reputation, 1)
+        self.assertEqual(g.regions["North America"].power, 1)
+        self.assertEqual(g.regions["Asia"].reputation, 1)
+        self.assertEqual(g.regions["Asia"].power, 1)
+
+    def test_presence_required_effects_and_chaos(self):
+        g = self.game
+        g.funds.add(1000)
+        # Give presence in Europe
+        g.regions.add_presence("Europe")
+
+        # Queue actions: [1,0] rep+1, [1,2] power+1, [2,1] power+1/rep-2/chaos+10, [2,2] rep-1/chaos+10
+        g.place_cube_and_handle_events(g.cubes[0], 1, 0)
+        g.place_cube_and_handle_events(g.cubes[1], 1, 2)
+        g.place_cube_and_handle_events(g.cubes[2], 2, 1)
+        g.place_cube_and_handle_events(g.cubes[3], 2, 2)
+
+        # Take actions -> should prompt 4 times; simulate 4 clicks on Europe
+        g.take_actions()
+        for _ in range(4):
+            x0, y0, x1, y1 = g.region_hitboxes["Europe"]
+            evt = type("E", (), {"x": int((x0 + x1) / 2), "y": int((y0 + y1) / 2)})
+            g._maybe_region_click(evt)
+
+        R = g.regions["Europe"]
+        # Effects: rep +1 (1,0), power +1 (1,2), power+1 rep-2 chaos+10 (2,1), rep-1 chaos+10 (2,2)
+        # Totals: rep = 0 +1 -2 -1 = -2; power = 0 +1 +1 = 2; chaos = 0 +10 +10 = 20
+        self.assertEqual(R.reputation, -2)
+        self.assertEqual(R.power, 2)
+        self.assertEqual(R.chaos, 20)
+
+    def test_take_actions_bumps_chaos_on_2_1_and_2_2(self):
+        g = self.game
+        g.funds.add(1000)
+
+        # Give presence in Europe so presence-required selections are allowed
+        g.regions.add_presence("Europe")
+
+        # Queue [2,1] and resolve -> +10 chaos
+        g.place_cube_and_handle_events(g.cubes[0], 2, 1)
+        g.place_cube_and_handle_events(g.cubes[1], 0, 0)  # filler to reach 4 placements if needed
+        g.place_cube_and_handle_events(g.cubes[2], 0, 0)
+        g.place_cube_and_handle_events(g.cubes[3], 0, 0)
+
+        g.take_actions()  # enters selection
+        # Click Europe for the presence-required action
+        x0, y0, x1, y1 = g.region_hitboxes["Europe"]
+        evt = type("E", (), {"x": int((x0 + x1) / 2), "y": int((y0 + y1) / 2)})
+        g._maybe_region_click(evt)
+
+        self.assertEqual(g.regions["Europe"].chaos, 10)
+        # Optional: UI tracker index moved to 1 (10 // 10)
+        key = "chaos:Europe"
+        # ensure tracker exists and marker is on index 1
+        rows = g.tracker_items.get(key, [])
+        self.assertTrue(rows)  # row was drawn
+        # Count visible marker
+        rows = g.tracker_items.get(key, [])
+        self.assertTrue(rows)  # row was drawn
+        # Count black-filled circle (active marker)
+        active_count = sum(1 for _r, _t, c, _geo in rows if g.canvas.itemcget(c, "fill") == "black")
+        self.assertEqual(active_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

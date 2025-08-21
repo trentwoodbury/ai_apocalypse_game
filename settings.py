@@ -49,6 +49,9 @@ BOARD_LABELS = [
     "MALICIOUS-APP:\n+1 Chaos\n-1 Reputation",
     "CHAOS:\nDraw 3 chaos cards, keep 1 and pay cost",
 ]
+# Actions that require selecting a region where the player ALREADY has presence
+PRESENCE_REQUIRED_COORDS = {(1,0), (1,2), (2,1), (2,2)}
+
 
 # Side image (to the right of the grid)
 SIDE_IMAGE_PATH = "images/Continents.jpg"
@@ -61,13 +64,7 @@ COMPUTE_STEPS = [
     "10^27 GigaFLOPs","10^32 GigaFLOPs","10^40 GigaFLOPs","10^50 GigaFLOPs",
 ]
 MODEL_STEPS   = ["V0","V0.5","V1","V1.5","V2","V3","V3.5","V4"]
-CHAOS_STEPS   = [str(x) for x in range(10, 181, 10)]  # 10..180
-
-# --- Space for trackers under the globe (height of 3 rows) ---
-TRACKERS_HEIGHT = 120   # approx. 3*row height
-
-# Hand/card area is now pushed further down to make room for trackers:
-CARD_AREA_Y = GRID_ORIGIN_Y + GRID_ROWS * CELL_SIZE + 30 + TRACKERS_HEIGHT + 10
+CHAOS_STEPS   = [x for x in range(10, 181, 10)]  # 10..180
 
 # --- Funds / costs ---
 FUNDS_START = 10
@@ -102,3 +99,13 @@ REGION_HEX_RADIUS = 14
 REGION_HEX_FILL = "#000000"   # black outline only; fill empty looks cleaner on map
 REGION_HEX_OUTLINE = "#111"
 REGION_HEX_WIDTH = 3
+
+# Tracker geometry
+TRACKER_ROW_H = 36
+
+# We now show: 2 fixed rows (Compute, Model) + one chaos row per region
+TRACKERS_EXTRA_ROWS = 2 + len(REGION_NAMES)
+TRACKERS_HEIGHT = TRACKER_ROW_H * TRACKERS_EXTRA_ROWS + 16
+
+# Hand/card area sits below all trackers
+CARD_AREA_Y = GRID_ORIGIN_Y + GRID_ROWS * CELL_SIZE + 30 + TRACKERS_HEIGHT + 10

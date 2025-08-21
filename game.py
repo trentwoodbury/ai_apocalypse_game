@@ -24,6 +24,9 @@ class Game:
         self.root = root
         self.root.title("4x4 Grid + 4 Cubes + Card Draw")
 
+        # --- Regions over the globe ---
+        self.regions = RegionManager(S.REGION_NAMES)
+
         # --- state (UI reads this) ---
         self.occupied = {}
         self.active_cube = None
@@ -81,24 +84,13 @@ class Game:
                 self.canvas.config(width=base_w)
 
         self._draw_trackers()
-
-        # Funds label right below trackers, aligned with their left edge
-        funds_x = getattr(self, "trackers_left_x", S.GRID_ORIGIN_X)
-        funds_y = getattr(self, "trackers_bottom_y", S.GRID_ORIGIN_Y) + 20
-        self.funds = Funds(
-            start_amount=S.FUNDS_START,
-            series_map=S.FUNDS_SERIES,
-            canvas=self.canvas,
-            x=funds_x,
-            y=funds_y,
-        )
-
-        # --- Regions over the globe ---
-        self.regions = RegionManager(S.REGION_NAMES)
+        funds_x = self.trackers_left_x
+        funds_y = self.trackers_bottom_y + 20
+        self.funds = Funds(S.FUNDS_START, S.FUNDS_SERIES, self.canvas, funds_x, funds_y)
 
         # Selection state if [1,1] was chosen this turn
         self.selecting_regions = False
-        self.selection_queue = 0  # how many presence placements to make
+        self.selection_tasks = []
         self.region_hitboxes = {}  # name -> (x0,y0,x1,y1)
         self.region_hex_ids = {}  # name -> canvas polygon id
 
@@ -124,6 +116,11 @@ class Game:
         # Extra binding to capture clicks on globe when selecting regions
         self.canvas.bind("<Button-1>", self.on_mouse_down, add="+")
         self.canvas.bind("<Button-1>", self._maybe_region_click, add="+")
+
+    @property
+    def selection_queue(self):
+        """Compatability shim: number of outstanding selections (old name)."""
+        return len(self.selection_tasks)
 
     # ---- UI drawing ----
     def draw_grid(self):
@@ -401,36 +398,69 @@ class Game:
     def update_reset_visibility(self):
         placed = sum(1 for c in self.cubes if c.current_cell is not None)
         if placed == 4:
-            # Show the button window
             self.canvas.itemconfigure(self.take_action_button_window, state="normal")
-            # Enable/disable based on funds sufficiency
-            pending = self._pending_total_cost()
-            if pending > self.funds.value:
-                self.take_action_button.config(state="disabled")
-            else:
+
+            # Funds gate
+            pending_cost = self._pending_total_cost()
+            funds_ok = (pending_cost <= self.funds.value)
+
+            # Presence gate: if any presence-required squares are used, must already have presence somewhere
+            need_presence = any(
+                c.current_cell in S.PRESENCE_REQUIRED_COORDS
+                for c in self.cubes if c.current_cell
+            )
+            presence_ok = (not need_presence) or self.regions.any_presence()
+
+            if funds_ok and presence_ok:
                 self.take_action_button.config(state="normal")
+            else:
+                self.take_action_button.config(state="disabled")
+                if not presence_ok:
+                    self._toast("Requires presence in a region")
         else:
             self.canvas.itemconfigure(self.take_action_button_window, state="hidden")
-            self.take_action_button.config(state="normal")  # reset for next time
+            self.take_action_button.config(state="normal")
 
     def take_actions(self):
-        # Funds gate first
+        # 0) Funds gate
         pending = self._pending_total_cost()
         if pending > self.funds.value:
             self._toast("Insufficient Funds")
             return
 
-        # Count how many presence placements we need (tokens at [1,1])
-        need_presence = sum(
-            1 for c in self.cubes if c.current_cell == (1, 1)
+        # 0b) Presence gate (if needed)
+        need_presence = any(
+            c.current_cell in S.PRESENCE_REQUIRED_COORDS
+            for c in self.cubes if c.current_cell
         )
-        if need_presence > 0:
-            self.selection_queue = need_presence
-            self.selecting_regions = True
-            self._show_center_popup(f"Select a region ({self.selection_queue} remaining)")
+        if need_presence and not self.regions.any_presence():
+            self._toast("Requires presence in a region")
             return
 
-        # Otherwise no presence picks needed; finish immediately
+        # 1) Build selection tasks
+        self.selection_tasks = []  # list of dicts: {"type": ..., "requires_presence": bool}
+
+        # [1,1] — Scale Presence: add presence (does NOT require existing presence)
+        for _ in [c for c in self.cubes if c.current_cell == (1, 1)]:
+            self.selection_tasks.append({"type": "add_presence", "requires_presence": False})
+
+        # Presence-required targets:
+        for _ in [c for c in self.cubes if c.current_cell == (1, 0)]:
+            self.selection_tasks.append({"type": "rep+1", "requires_presence": True})
+        for _ in [c for c in self.cubes if c.current_cell == (1, 2)]:
+            self.selection_tasks.append({"type": "power+1", "requires_presence": True})
+        for _ in [c for c in self.cubes if c.current_cell == (2, 1)]:
+            self.selection_tasks.append({"type": "power+1_rep-2_chaos+10", "requires_presence": True})
+        for _ in [c for c in self.cubes if c.current_cell == (2, 2)]:
+            self.selection_tasks.append({"type": "rep-1_chaos+10", "requires_presence": True})
+
+        # 2) If we need selections, enter selection mode and prompt
+        if self.selection_tasks:
+            self.selecting_regions = True
+            self._show_center_popup(self._current_selection_prompt())
+            return
+
+        # 3) If no selections needed, resolve immediately
         self._finish_take_actions_after_selection()
 
     def _finish_take_actions_after_selection(self):
@@ -438,7 +468,13 @@ class Game:
         for _ in self.cubes_on_final_column():
             self.draw_card()
 
-        # 2) Tracker bumps based on cube placements
+        # 1b) Global buff: [0,1] => +1 rep & +1 power in ALL regions where you have presence
+        if any(c.current_cell == (0, 1) for c in self.cubes if c.current_cell):
+            for r in self.regions.with_presence():
+                r.adjust_rep(+1)
+                r.adjust_power(+1)
+
+        # 2) Tracker bumps (unchanged)
         bumps_compute = bumps_model = bumps_chaos = 0
         charges = {"lobby": 0, "scale_presence": 0, "compute_or_model": 0}
 
@@ -446,7 +482,6 @@ class Game:
             if not cube.current_cell:
                 continue
             r, c = cube.current_cell
-
             if (r, c) == (0, 0):
                 bumps_compute += 1
                 charges["compute_or_model"] += 1
@@ -459,77 +494,135 @@ class Game:
             if (r, c) == (0, 2):
                 charges["lobby"] += 1
             if (r, c) == (1, 1):
-                charges["scale_presence"] += 1  # cost progression only; presence was handled by clicks
+                charges["scale_presence"] += 1
 
-        if bumps_compute: self.inc_compute(bumps_compute)
-        if bumps_model:   self.inc_model(bumps_model)
-        if bumps_chaos:   self.inc_chaos(bumps_chaos)
+        if bumps_compute:
+            self.inc_compute(bumps_compute)
+        if bumps_model:
+            self.inc_model(bumps_model)
+        if bumps_chaos:
+            self.inc_chaos(bumps_chaos)
 
-        # 3) Deduct funds for all placed actions (clamped in Funds)
+        # 3) Deduct funds
         for key, n in charges.items():
-            if n:
-                self.funds.charge(key, n)
+            if n: self.funds.charge(key, n)
 
-        # 4) Income: SUM(rep) * SUM(power)
+        # 4) Income at end: SUM(rep) * SUM(power)
         income = self.regions.total_reputation() * self.regions.total_power()
-        if income:
-            self.funds.add(income)
+        if income: self.funds.add(income)
 
-        # 5) Reset tokens & occupancy
-        for cube in self.cubes:
-            cube.return_to_start()
+        # 5) Reset board
+        for cube in self.cubes: cube.return_to_start()
         self.occupied.clear()
-
-        # 6) Hide the button again
         self.canvas.itemconfigure(self.take_action_button_window, state="hidden")
 
     def _draw_trackers(self):
-        """Draw three horizontal trackers below the globe, aligned under the grid/globe band."""
-        # Geometry
+        """Draw Compute, Model, and per-region Chaos trackers under the globe."""
         grid_w = S.GRID_COLS * S.CELL_SIZE
         grid_h = S.GRID_ROWS * S.CELL_SIZE
         img_x = S.GRID_ORIGIN_X + grid_w + S.GRID_PADDING
-        left_x = img_x  # left aligned with globe
-        top_y = S.GRID_ORIGIN_Y + grid_h + 10  # just below the globe
-        row_h = 36
-        pad_x = 10
-        self.trackers_rightmost_x = S.GRID_ORIGIN_X  # init; we'll update
+        left_x = img_x
+        top_y = S.GRID_ORIGIN_Y + grid_h + 10
+        row_h = S.TRACKER_ROW_H
 
-        # One row drawer
-        def draw_row(y, title, steps, marker_list_key):
-            # title
-            self.canvas.create_text(left_x, y, text=title + ":", anchor="w",
-                                    font=("Helvetica", 12, "bold"), fill="black")
-            # boxes
-            x = left_x + 110
-            self.tracker_items[marker_list_key] = []
-            for i, label in enumerate(steps):
-                w = 120 if marker_list_key != "chaos" else 60  # chaos numbers are narrow
-                rect = self.canvas.create_rectangle(x, y - 14, x + w, y + 14, outline="#222", fill="#eee")
-                txt = self.canvas.create_text((x + x + w) / 2, y, text=label,
-                                              font=("Helvetica", 11, "bold"), fill="#111")
-                # marker position (circle) centered in rect
-                cx = (x + x + w) / 2
-                cy = y
-                circle = self.canvas.create_oval(cx - 10, cy - 10, cx + 10, cy + 10, outline="", width=3)
-                self.tracker_items[marker_list_key].append((rect, txt, circle, (x, y, w)))
-                self.trackers_rightmost_x = max(self.trackers_rightmost_x, x + w)
-                x += w + 8
-
-        draw_row(top_y + 0 * row_h, "Compute", S.COMPUTE_STEPS, "compute")
-        draw_row(top_y + 1 * row_h, "Model Version", S.MODEL_STEPS, "model")
-        draw_row(top_y + 2 * row_h, "Chaos Created", S.CHAOS_STEPS, "chaos")
-
+        # Keep for placing Funds label later
         self.trackers_left_x = left_x
-        self.trackers_bottom_y = top_y + 3 * row_h
 
-        # paint initial markers
-        self._render_tracker_markers()
-        # Scale screen to include full trackers
+        # 1) Compute & Model rows (single trackers)
+        self._draw_tracker_row(
+            y=top_y + 0 * row_h,
+            title="Compute",
+            steps=S.COMPUTE_STEPS,
+            key="compute",
+            active_idx=self.compute_idx
+        )
+        self._draw_tracker_row(
+            y=top_y + 1 * row_h,
+            title="Model Version",
+            steps=S.MODEL_STEPS,
+            key="model",
+            active_idx=self.model_idx
+        )
+
+        # 2) Per-region Chaos rows
+        chaos_start_y = top_y + 2 * row_h
+        for i, region in enumerate(self.regions.regions.values()):
+            tracker_ids = self._draw_tracker_row(
+                y=chaos_start_y + i * row_h,
+                title=f"{region.name} Chaos",
+                steps=S.CHAOS_STEPS,
+                key=f"chaos:{region.name}",
+                active_idx=region.chaos // 10
+            )
+            region.attach_ui(self.canvas, tracker_ids)
+
+        # Let Funds placement know where the tracker block ends
+        self.trackers_bottom_y = chaos_start_y + len(S.REGION_NAMES) * row_h
+
+        # Widen canvas if needed based on last row’s right edge
         needed_w = int(self.trackers_rightmost_x + S.GRID_PADDING)
         current_w = int(float(self.canvas.cget("width")))
         if needed_w > current_w:
             self.canvas.config(width=needed_w)
+
+    def _draw_tracker_row(self, y, title, steps, key, active_idx=0):
+        """Render one horizontal tracker row; store item ids in self.tracker_items[key].
+           Returns the list of (rect, txt, circle, meta) tuples for external use.
+        """
+        left_x = self.trackers_left_x if hasattr(self, "trackers_left_x") else S.GRID_ORIGIN_X
+        pad_label = 110
+        w_box = 120 if key not in ("chaos",) else 60  # smaller boxes okay for chaos numbers
+        gap = 8
+
+        # title
+        self.canvas.create_text(
+            left_x, y,
+            text=title + ":",
+            anchor="w",
+            font=("Helvetica", 12, "bold"),
+            fill="black"
+        )
+
+        x = left_x + pad_label
+        rows_list = []
+        for i, label in enumerate(steps):
+            rect = self.canvas.create_rectangle(x, y - 14, x + w_box, y + 14, outline="#222", fill="#eee")
+            txt = self.canvas.create_text((x + x + w_box) / 2, y, text=label,
+                                          font=("Helvetica", 11, "bold"), fill="#111")
+            cx = (x + x + w_box) / 2
+            circle = self.canvas.create_oval(cx - 10, y - 10, cx + 10, y + 10,
+                                             outline="", width=3)
+            rows_list.append((rect, txt, circle, (x, y, w_box)))
+            self.trackers_rightmost_x = max(getattr(self, "trackers_rightmost_x", 0), x + w_box)
+            x += w_box + gap
+
+        # Save in dict and highlight active index
+        if not hasattr(self, "tracker_items"):
+            self.tracker_items = {}
+        self.tracker_items[key] = rows_list
+        self._set_tracker_active_index(key, active_idx)
+
+        return rows_list
+
+    def _set_tracker_active_index(self, key, idx):
+        """Show the marker (circle) on the idx-th slot, hide others."""
+        rows_list = self.tracker_items.get(key, [])
+        for i, (_rect, _txt, circle, (x, y, w)) in enumerate(rows_list):
+            if i == idx:
+                # center circle and show outline
+                cx = (x + x + w) / 2
+                self.canvas.coords(circle, cx - 12, y - 12, cx + 12, y + 12)
+                self.canvas.itemconfigure(circle, outline="black")
+            else:
+                self.canvas.itemconfigure(circle, outline="")
+
+    def _update_region_chaos(self, name):
+        """Sync a region’s chaos value to its chaos row marker."""
+        idx = 0
+        if name in self.regions.regions:
+            idx = max(0, min(9, self.regions[name].chaos // 10))
+        key = f"chaos:{name}"
+        self._set_tracker_active_index(key, idx)
 
     def _render_tracker_markers(self):
         """Position/visibility of the index markers (black circles)."""
@@ -561,6 +654,7 @@ class Game:
         if self.model_idx > self.compute_idx:
             self.model_idx = self.compute_idx
         self._render_tracker_markers()
+        self._set_tracker_active_index("compute", self.compute_idx)
 
     def inc_model(self, n=1):
         # cap by compute
@@ -568,6 +662,7 @@ class Game:
         if target != self.model_idx:
             self.model_idx = target
             self._render_tracker_markers()
+        self._set_tracker_active_index("model", self.model_idx)
 
     def inc_chaos(self, n=1):
         self.chaos_idx = min(self.chaos_idx + n, len(S.CHAOS_STEPS) - 1)
@@ -655,40 +750,72 @@ class Game:
             self.region_hex_ids[name] = pid
 
     def _maybe_region_click(self, event):
-        """If we're in region selection mode, consume a click to set presence."""
+        """Handle selection clicks for presence adding and region-targeted effects."""
         if not getattr(self, "selecting_regions", False):
             return
+        if not self.selection_tasks:
+            # Safety: nothing to select
+            self._hide_center_popup()
+            self.selecting_regions = False
+            self._finish_take_actions_after_selection()
+            return
 
+        # Hit-test regions
+        hit_name = None
         for name, (x0, y0, x1, y1) in self.region_hitboxes.items():
             if x0 <= event.x <= x1 and y0 <= event.y <= y1:
-                # Only count a selection if the region doesn't already have presence
-                if not self.regions.has_presence(name):
-                    self.regions.add_presence(name)
-                    self._render_region_markers()
-                    self.selection_queue -= 1
-                else:
-                    # Already present: keep popup up and ask for another pick
-                    self._update_center_popup(
-                        f"{name} already has presence. Select a different region ({self.selection_queue} remaining)"
-                    )
-                    return
+                hit_name = name
+                break
 
-                if self.selection_queue <= 0:
-                    # Done selecting — hide popup and finish the action phase
-                    self._hide_center_popup()
-                    self.selecting_regions = False
-                    self._finish_take_actions_after_selection()
-                else:
-                    # More picks remaining; keep popup updated
-                    self._update_center_popup(
-                        f"Select a region ({self.selection_queue} remaining)"
-                    )
-                return  # stop after handling this click
+        # If miss, just reassert prompt
+        if not hit_name:
+            self._update_center_popup(self._current_selection_prompt())
+            return
 
-        # Clicked outside any region while selecting: keep the popup visible as a reminder
-        self._update_center_popup(
-            f"Select a region ({self.selection_queue} remaining)"
-        )
+        task = self.selection_tasks[0]
+
+        # Enforce presence when required
+        if task["requires_presence"] and not self.regions.has_presence(hit_name):
+            self._update_center_popup("Select a region WHERE YOU HAVE PRESENCE")
+            return
+
+        # Apply task
+        if task["type"] == "add_presence":
+            if not self.regions.has_presence(hit_name):
+                self.regions.add_presence(hit_name)
+                self._render_region_markers()
+            # else: picking an already-present region is fine; it’s idempotent
+
+        elif task["type"] == "rep+1":
+            self.regions[hit_name].adjust_rep(+1)
+
+        elif task["type"] == "power+1":
+            self.regions[hit_name].adjust_power(+1)
+
+        elif task["type"] == "power+1_rep-2_chaos+10":
+            R = self.regions[hit_name]
+            R.adjust_power(+1)
+            R.adjust_rep(-2)
+            R.set_chaos(R.chaos + 10)
+            self._update_region_chaos(hit_name)
+
+        elif task["type"] == "rep-1_chaos+10":
+            R = self.regions[hit_name]
+            R.adjust_rep(-1)
+            R.set_chaos(R.chaos + 10)
+            self._update_region_chaos(hit_name)
+
+        # Consume this task
+        self.selection_tasks.pop(0)
+
+        if self.selection_tasks:
+            # More to pick
+            self._update_center_popup(self._current_selection_prompt())
+        else:
+            # Done: hide popup and finish the action phase
+            self._hide_center_popup()
+            self.selecting_regions = False
+            self._finish_take_actions_after_selection()
 
     def _show_center_popup(self, msg: str):
         """Show a centered, light-grey popup with black text."""
@@ -755,6 +882,17 @@ class Game:
             except Exception:
                 pass
             self._popup_rect_id = None
+
+    def _current_selection_prompt(self):
+        if not getattr(self, "selection_tasks", None):
+            return ""
+        t = self.selection_tasks[0]
+        if t["type"] == "add_presence":
+            return f"Select a region to ADD presence ({len(self.selection_tasks)} remaining)"
+        if t["requires_presence"]:
+            return f"Select a region WHERE YOU HAVE PRESENCE ({len(self.selection_tasks)} remaining)"
+        return f"Select a region ({len(self.selection_tasks)} remaining)"
+
 
 
 
