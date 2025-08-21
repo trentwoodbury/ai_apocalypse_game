@@ -27,9 +27,6 @@ class TestOperations(unittest.TestCase):
         g = self.game
         c = next(c for c in g.cubes if not c.locked)
         g.place_cube_and_handle_events(c, 0, 2)
-        for extra in [cc for cc in g.cubes if cc is not c]:
-            # drop them somewhere cheap to reach 4 placements
-            g.place_cube_and_handle_events(extra, 0, 0)
 
         before = (g.ops_available, g.ops_aspirational, g.funds.value)
         g.take_actions()

@@ -38,6 +38,7 @@ class Cube:
     def return_to_start(self):
         self.canvas.coords(self.rect, self.start_x, self.start_y, self.start_x + self.size, self.start_y + self.size)
         self.canvas.coords(self.text, self.start_x + self.size/2, self.start_y + self.size/2)
+        self.current_cell = None
 
     def center_on_cell(self, row, col, grid_origin_x=None, grid_origin_y=None, cell_size=None):
         """Snap the cube to the center of (row, col).

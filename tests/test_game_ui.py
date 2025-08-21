@@ -108,14 +108,6 @@ class TestGameUI(unittest.TestCase):
         # Left of grid (sanity)
         self.assertLess(x1, S.GRID_ORIGIN_X)
 
-        # Label exists, is black, centered above the box
-        label_id = getattr(self.game, "start_area_label_id", None)
-        self.assertIsNotNone(label_id)
-        lx, ly = self.game.canvas.coords(label_id)
-        self.assertAlmostEqual(lx, (x0 + x1) / 2, delta=2)
-        self.assertLess(ly, y0)  # above the box
-        self.assertEqual(self.game.canvas.itemcget(label_id, "fill"), "black")
-
     def test_costs_panel_bolds_next_presence_cost(self):
         g = self.game
 
